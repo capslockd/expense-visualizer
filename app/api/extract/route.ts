@@ -2,9 +2,10 @@ import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSessionUserId } from "@/lib/auth";
-import { intakeFile } from "@/lib/files/intake";
+import { intakeFile, IntakeResult } from "@/lib/files/intake";
 import { extractStatement, ExtractionError } from "@/lib/anthropic/extract";
 import { basicExtract } from "@/lib/basic/extract";
+import { extractPdfText } from "@/lib/basic/pdf";
 import { normalizeMerchant } from "@/lib/categorize/normalize";
 import { applyRules } from "@/lib/categorize/rules";
 import { statementFingerprint } from "@/lib/fingerprint";
@@ -29,6 +30,21 @@ function aiUnavailable(err: unknown): boolean {
   return err instanceof Error && err.message.includes("ANTHROPIC_API_KEY is not set");
 }
 
+/** Text the basic engine can chew: CSV/Excel text directly, or a PDF's text layer. */
+async function basicInputText(
+  intake: Exclude<IntakeResult, { kind: "error" } | { kind: "image" }>,
+): Promise<string> {
+  if (intake.kind === "text") return intake.text;
+  const text = await extractPdfText(intake.buffer);
+  if (!text) {
+    throw new ExtractionError(
+      "BASIC_PARSE_FAILED",
+      "This PDF has no readable text layer — it looks like a scan. Scanned statements need AI parsing (add Anthropic credits), or export a CSV from your bank instead.",
+    );
+  }
+  return text;
+}
+
 export async function POST(req: Request) {
   const userId = await getSessionUserId();
   if (!userId) return apiError(401, "UNAUTHORIZED", "Sign in to upload statements.");
@@ -50,11 +66,11 @@ export async function POST(req: Request) {
   if (intake.kind === "error") {
     return apiError(400, intake.code, intake.message);
   }
-  if (requestedEngine === "basic" && intake.kind !== "text") {
+  if (requestedEngine === "basic" && intake.kind === "image") {
     return apiError(
       400,
       "BASIC_NEEDS_TEXT",
-      "Basic (no-AI) parsing works with CSV and Excel files only. PDFs and images need AI parsing.",
+      "Basic (no-AI) parsing works with CSV, Excel, and text-based PDF files. Photos and screenshots need AI parsing.",
     );
   }
 
@@ -67,14 +83,16 @@ export async function POST(req: Request) {
     let parsed;
     let engineUsed: "ai" | "basic" = requestedEngine;
     if (requestedEngine === "basic") {
-      parsed = basicExtract((intake as { text: string }).text, categories);
+      if (intake.kind === "image") throw new Error("unreachable"); // gated above
+      parsed = basicExtract(await basicInputText(intake), categories);
     } else {
       try {
         parsed = await extractStatement(intake, categories, rules);
       } catch (err) {
-        // No credits / no key? CSV and Excel can still go through the basic engine.
-        if (aiUnavailable(err) && intake.kind === "text") {
-          parsed = basicExtract(intake.text, categories);
+        // No credits / no key? CSV/Excel and text PDFs can still go through
+        // the basic engine.
+        if (aiUnavailable(err) && intake.kind !== "image") {
+          parsed = basicExtract(await basicInputText(intake), categories);
           engineUsed = "basic";
           parsed.warnings.unshift(
             "AI parsing is unavailable (no Anthropic API credits), so the basic parser was used — more transactions may need manual categorization.",

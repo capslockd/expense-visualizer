@@ -209,7 +209,7 @@ export default function UploadFlow() {
               {
                 value: "basic" as const,
                 title: "Basic parsing (no AI)",
-                desc: "Free · CSV and Excel only · categorizes by known merchants, asks you about the rest",
+                desc: "Free · CSV, Excel & text PDFs · categorizes by known merchants, asks you about the rest",
               },
             ]
           ).map((opt) => (

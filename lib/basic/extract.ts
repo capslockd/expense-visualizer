@@ -142,7 +142,7 @@ export function basicExtract(
     period_start: parsed.period_start,
     period_end: parsed.period_end,
     statement_currency: currency,
-    account_hint: null,
+    account_hint: parsed.account_hint,
     warnings,
     transactions: parsed.transactions.map((t) => {
       // Prefer the bank's own merchant column when the export has one.

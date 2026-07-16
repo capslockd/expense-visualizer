@@ -16,12 +16,14 @@
 const KEYWORDS: Array<[string, string]> = [
   // --- Specific-before-general disambiguations ------------------------
   ["COLES EXPRESS", "Transport"], // Shell Coles Express fuel
+  ["REDDY EXPRESS", "Transport"], // Coles Express rebrand
   ["WOOLWORTHS PETROL", "Transport"],
   ["WOOLWORTHS CALTEX", "Transport"],
   ["BOOST JUICE", "Dining"],
   ["BOOST MOBILE", "Utilities"],
   ["VIRGIN AUSTRALIA", "Travel"],
   ["VIRGIN ACTIVE", "Health"],
+  ["AMAZON WEB SERVICES", "Subscriptions"], // before AMAZON → Shopping
 
   // --- Groceries -------------------------------------------------------
   ["WOOLWORTHS", "Groceries"], ["COLES", "Groceries"], ["ALDI", "Groceries"],
@@ -51,7 +53,8 @@ const KEYWORDS: Array<[string, string]> = [
   ["UBER", "Transport"], ["DIDI", "Transport"], ["13CABS", "Transport"],
   ["SILVER TOP", "Transport"], ["GOCATCH", "Transport"],
   ["OPAL", "Transport"], ["TRANSPORTFORNSW", "Transport"], ["TRANSPORT FOR NSW", "Transport"],
-  ["MYKI", "Transport"], ["PTV", "Transport"], ["YARRA TRAMS", "Transport"],
+  ["MYKI", "Transport"], ["PTV", "Transport"], ["PUBLIC TRANSPORT", "Transport"],
+  ["YARRA TRAMS", "Transport"],
   ["METRO TRAINS", "Transport"], ["VLINE", "Transport"], ["V LINE", "Transport"],
   ["TRANSLINK", "Transport"], ["GO CARD", "Transport"], ["ADELAIDE METRO", "Transport"],
   ["TRANSPERTH", "Transport"], ["METRO TASMANIA", "Transport"],
@@ -105,7 +108,7 @@ const KEYWORDS: Array<[string, string]> = [
   ["SHEIN", "Shopping"], ["ALIEXPRESS", "Shopping"], ["TAOBAO", "Shopping"],
 
   // --- Health --------------------------------------------------------------
-  ["CHEMIST WAREHOUSE", "Health"], ["PRICELINE", "Health"], ["TERRYWHITE", "Health"],
+  ["CHEMIST WAREHOUSE", "Health"], ["CWH", "Health"], ["PRICELINE", "Health"], ["TERRYWHITE", "Health"],
   ["AMCAL", "Health"], ["PHARMACY", "Health"], ["CHEMIST", "Health"],
   ["CLINIC", "Health"], ["DENTAL", "Health"], ["HOSPITAL", "Health"],
   ["MEDICAL CENTRE", "Health"], ["PHYSIO", "Health"], ["OPTOMETRIST", "Health"],
@@ -168,6 +171,8 @@ const KEYWORDS: Array<[string, string]> = [
   ["INTL TRANSACTION FEE", "Fees & Charges"],
   ["INTERNATIONAL TRANSACTION FEE", "Fees & Charges"],
   ["FOREIGN TRANSACTION FEE", "Fees & Charges"],
+  ["TRAN FEE", "Fees & Charges"], // e.g. "NAB INTNL TRAN FEE"
+  ["TRANSACTION FEE", "Fees & Charges"],
   // Payments & transfers (no bare "BPAY"/"DIRECT DEBIT" — those usually pay bills)
   ["PAYMENT RECEIVED", "Payments & Transfers"],
   ["PAYMENT THANK YOU", "Payments & Transfers"],

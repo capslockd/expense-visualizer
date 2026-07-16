@@ -22,6 +22,7 @@ export interface BasicParseResult {
   period_start: string | null;
   period_end: string | null;
   currency: string | null;
+  account_hint: string | null;
   warnings: string[];
 }
 
@@ -396,7 +397,83 @@ function parseSection(text: string): BasicParseResult | null {
     period_start: dates[0] ?? null,
     period_end: dates[dates.length - 1] ?? null,
     currency,
+    account_hint: null,
     warnings,
+  };
+}
+
+// ---------------------------------------------------------------- line-oriented parser (PDF text)
+
+/**
+ * Parse statement rows from extracted PDF text — one transaction per line:
+ *
+ *   17/06/26 16/06/26 V8782 SWIM CENTRAL ALBERT PARK 245.00
+ *   24/06/26 17/06/26 V9700 TAOBAO Melbourne 33.19 CR
+ *   16 Jun 26 BUNNINGS HOPPERS CROSSING 128.78
+ *
+ * Shape: 1–2 leading dates (when two, the second is the transaction date),
+ * an optional card token (V8782), the details, and a trailing amount with an
+ * optional CR/DR marker. Credit-card convention: unmarked = charge (debit).
+ */
+const DATE_TOKEN =
+  String.raw`(?:\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{1,2}[\s\-/.][A-Za-z]{3,9}\.?[\s\-/.]\d{2,4})`;
+const LINE_RE = new RegExp(
+  String.raw`^\s*(${DATE_TOKEN})(?:\s+(${DATE_TOKEN}))?(?:\s+([A-Z]\d{3,4}))?\s+(.+?)\s+\(?(-?)\$?([\d,]+\.\d{2})\)?\s*(CR|DR)?\s*$`,
+  "i",
+);
+
+function parseStatementLines(text: string): BasicParseResult | null {
+  const lines = text.split(/\r?\n/);
+  interface Hit {
+    dateRaw: string;
+    description: string;
+    signed: number;
+    marker: "debit" | "credit" | null;
+  }
+  const hits: Hit[] = [];
+  for (const line of lines) {
+    const m = line.match(LINE_RE);
+    if (!m) continue;
+    const [, date1, date2, , details, minus, amountRaw, marker] = m;
+    const description = details.trim();
+    if (/^(opening|closing|previous|brought forward|carried forward|sub ?total|total|balance)\b/i.test(description)) continue;
+    const value = Number(amountRaw.replace(/,/g, ""));
+    if (!Number.isFinite(value) || value === 0) continue;
+    hits.push({
+      // With two dates the second is the actual transaction date.
+      dateRaw: (date2 ?? date1).trim(),
+      description,
+      signed: minus ? -value : value,
+      marker: marker ? (marker.toUpperCase() === "CR" ? "credit" : "debit") : null,
+    });
+  }
+  if (hits.length < 2) return null;
+
+  const { dayFirst } = detectDayFirst(hits.map((h) => h.dateRaw));
+  const transactions: ParsedRow[] = [];
+  for (const h of hits) {
+    const date = parseDate(h.dateRaw, dayFirst);
+    if (!date) continue;
+    transactions.push({
+      date,
+      description: h.description,
+      amount: Math.round(Math.abs(h.signed) * 100) / 100,
+      direction:
+        h.marker ?? (h.signed < 0 ? "credit" : "debit"), // unmarked positive = charge
+      merchant: null,
+      bank_category: null,
+    });
+  }
+  if (transactions.length < 2) return null;
+
+  const dates = transactions.map((t) => t.date).sort();
+  return {
+    transactions,
+    period_start: dates[0] ?? null,
+    period_end: dates[dates.length - 1] ?? null,
+    currency: null,
+    account_hint: null,
+    warnings: [],
   };
 }
 
@@ -405,11 +482,32 @@ function findStatedPeriod(text: string): { start: string | null; end: string | n
   const m = text.match(
     /period[:\s]+(.+?)\s+(?:to|-|–|through)\s+(.+?)(?:[\r\n,]|$)/i,
   );
-  if (!m) return { start: null, end: null };
-  return {
-    start: parseDate(m[1].trim(), true),
-    end: parseDate(m[2].trim(), true),
-  };
+  if (m) {
+    const start = parseDate(m[1].trim(), true);
+    const end = parseDate(m[2].trim(), true);
+    if (start || end) return { start, end };
+  }
+  // Standalone date-range line, e.g. "16 Jun 26-15 Jul 26" (PDF layouts often
+  // separate the "Statement Period" label from its value).
+  for (const line of text.split(/\r?\n/)) {
+    const r = line.trim().match(
+      new RegExp(String.raw`^(${DATE_TOKEN})\s*[-–]\s*(${DATE_TOKEN})$`),
+    );
+    if (r) {
+      const start = parseDate(r[1], true);
+      const end = parseDate(r[2], true);
+      if (start && end && start <= end) return { start, end };
+    }
+  }
+  return { start: null, end: null };
+}
+
+/** Card/account last-4 hint, e.g. "Visa Account Number 4557 0365 8450 9700". */
+function findAccountHint(text: string): string | null {
+  const m = text.match(/(?:account|card)\s*(?:number|no\.?)?[:\s]+((?:\d[\s-]?){12,19})/i);
+  if (!m) return null;
+  const digits = m[1].replace(/\D/g, "");
+  return digits.length >= 8 ? digits.slice(-4) : null;
 }
 
 export function basicParse(text: string): BasicParseResult | null {
@@ -425,16 +523,27 @@ export function basicParse(text: string): BasicParseResult | null {
       best = parsed;
     }
   }
+  // Not a delimited table? Try the line-oriented shape (PDF statement text).
+  if (!best) best = parseStatementLines(text);
   if (!best) return null;
 
   const stated = findStatedPeriod(text);
   if (stated.start) best.period_start = stated.start;
   if (stated.end) best.period_end = stated.end;
+  best.account_hint ??= findAccountHint(text);
 
   // Currency from anywhere in the raw text if the amounts carried no symbol.
   if (!best.currency) {
     const m = text.match(/currency[:\s]+([A-Z]{3})/i);
     if (m) best.currency = m[1].toUpperCase();
+    else {
+      for (const [re, code] of CURRENCY_HINTS) {
+        if (re.test(text)) {
+          best.currency = code;
+          break;
+        }
+      }
+    }
   }
   return best;
 }
