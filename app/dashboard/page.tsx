@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { getCategories, getStatements, getTransactions } from "@/lib/sheets/repo";
 import {
   byMonth,
+  byStatement,
   currenciesOf,
   formatMoney,
   monthLabel,
@@ -11,7 +12,7 @@ import {
   totalMoneyIn,
 } from "@/lib/analytics";
 import StatTiles, { Tile } from "@/components/dashboard/StatTiles";
-import MonthlyTrendChart from "@/components/dashboard/MonthlyTrendChart";
+import TrendExplorer from "@/components/dashboard/TrendExplorer";
 import BudgetVsActual from "@/components/dashboard/BudgetVsActual";
 
 export const dynamic = "force-dynamic";
@@ -52,29 +53,38 @@ export default async function DashboardPage({
 
   const params = await searchParams;
   const currencies = currenciesOf(allTxns);
-  const requested = typeof params.currency === "string" ? params.currency : null;
+  const requestedCurrency =
+    typeof params.currency === "string" ? params.currency : null;
   const currency =
-    requested && currencies.includes(requested) ? requested : currencies[0];
+    requestedCurrency && currencies.includes(requestedCurrency)
+      ? requestedCurrency
+      : currencies[0];
   const txns = allTxns.filter((t) => t.currency === currency);
 
-  const monthly = byMonth(txns);
+  // Grouping: by statement period (the billing cycle) by default, or by
+  // calendar month via the toggle.
+  const group = params.group === "month" ? "month" : "statement";
+  const periods =
+    group === "month" ? byMonth(txns) : byStatement(txns, statements);
+
   const ranked = netByCategory(txns)
     .filter((c) => c.total > 0)
     .map((c) => c.category);
 
-  const latest = monthly[monthly.length - 1];
-  const previous = monthly.length > 1 ? monthly[monthly.length - 2] : null;
+  const latest = periods[periods.length - 1];
+  const previous = periods.length > 1 ? periods[periods.length - 2] : null;
+  const periodNoun = group === "month" ? "month" : "statement";
 
   const tiles: Tile[] = [];
   if (latest) {
     const delta = previous ? latest.total - previous.total : null;
     tiles.push({
-      label: `Spend · ${monthLabel(latest.month)}`,
+      label: `Spend · ${latest.label}`,
       value: formatMoney(latest.total, currency),
       sub:
         delta === null
-          ? "first month on record"
-          : `${delta >= 0 ? "+" : "−"}${formatMoney(Math.abs(delta), currency)} vs ${monthLabel(previous!.month)}`,
+          ? `first ${periodNoun} on record`
+          : `${delta >= 0 ? "+" : "−"}${formatMoney(Math.abs(delta), currency)} vs previous ${periodNoun}`,
       subTone: delta === null ? "neutral" : delta > 0 ? "bad" : "good",
     });
 
@@ -94,20 +104,20 @@ export default async function DashboardPage({
         tiles.push({
           label: "Biggest mover",
           value: mover.category,
-          sub: `${mover.diff >= 0 ? "+" : "−"}${formatMoney(Math.abs(mover.diff), currency)} vs last month`,
+          sub: `${mover.diff >= 0 ? "+" : "−"}${formatMoney(Math.abs(mover.diff), currency)} vs previous ${periodNoun}`,
           subTone: mover.diff > 0 ? "bad" : "good",
         });
       }
     }
 
-    const topCat = netByCategory(
-      txns.filter((t) => t.date.startsWith(latest.month)),
-    )[0];
+    const topCat = Object.entries(latest.byCategory)
+      .filter(([, net]) => net > 0)
+      .sort((a, b) => b[1] - a[1])[0];
     if (topCat) {
       tiles.push({
-        label: `Top category · ${monthLabel(latest.month)}`,
-        value: topCat.category,
-        sub: formatMoney(topCat.total, currency),
+        label: `Top category · latest ${periodNoun}`,
+        value: topCat[0],
+        sub: formatMoney(topCat[1], currency),
       });
     }
 
@@ -118,43 +128,72 @@ export default async function DashboardPage({
     });
   }
 
-  // Budget vs actual for the latest month with data.
-  const budgetRows = latest
+  // Budgets are monthly by definition, so this section always uses calendar
+  // months regardless of the trend grouping.
+  const monthly = group === "month" ? periods : byMonth(txns);
+  const latestMonth = monthly[monthly.length - 1];
+  const budgetRows = latestMonth
     ? categories
         .filter((c) => (c.monthly_budget ?? 0) > 0)
         .map((c) => ({
           category: c.name,
           budget: c.monthly_budget as number,
-          actual: Math.max(latest.byCategory[c.name] ?? 0, 0),
+          actual: Math.max(latestMonth.byCategory[c.name] ?? 0, 0),
         }))
         .sort((a, b) => b.actual / b.budget - a.actual / a.budget)
     : [];
+  const latestMonthName = latestMonth ? monthLabel(latestMonth.key) : "";
 
   const sortedStatements = [...statements].sort((a, b) =>
     b.uploaded_at.localeCompare(a.uploaded_at),
   );
 
+  const toggleHref = (g: "statement" | "month") =>
+    `/dashboard?group=${g}${currencies.length > 1 ? `&currency=${currency}` : ""}`;
+
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        {currencies.length > 1 && (
+        <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
-            {currencies.map((c) => (
+            {(
+              [
+                ["statement", "By statement"],
+                ["month", "By month"],
+              ] as const
+            ).map(([g, label]) => (
               <Link
-                key={c}
-                href={`/dashboard?currency=${c}`}
+                key={g}
+                href={toggleHref(g)}
                 className={`rounded-md px-3 py-1 text-sm ${
-                  c === currency
+                  g === group
                     ? "bg-zinc-900 font-medium text-white"
                     : "text-zinc-600 hover:bg-zinc-100"
                 }`}
               >
-                {c}
+                {label}
               </Link>
             ))}
           </div>
-        )}
+          {currencies.length > 1 && (
+            <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
+              {currencies.map((c) => (
+                <Link
+                  key={c}
+                  href={`/dashboard?group=${group}&currency=${c}`}
+                  className={`rounded-md px-3 py-1 text-sm ${
+                    c === currency
+                      ? "bg-zinc-900 font-medium text-white"
+                      : "text-zinc-600 hover:bg-zinc-100"
+                  }`}
+                >
+                  {c}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-5">
@@ -163,14 +202,17 @@ export default async function DashboardPage({
 
       <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
         <h2 className="text-sm font-semibold text-zinc-900">
-          Monthly spend by category
+          Spend by category ·{" "}
+          {group === "statement" ? "per statement (billing cycle)" : "per calendar month"}
         </h2>
         <p className="mb-4 text-xs text-zinc-500">
-          Net of refunds · excludes card payments and transfers · {currency}
+          Net of refunds · excludes card payments and transfers · {currency} ·
+          click a legend entry to drill into merchants
         </p>
-        <MonthlyTrendChart
-          data={monthly}
+        <TrendExplorer
+          periods={periods}
           rankedCategories={ranked}
+          txns={txns}
           currency={currency}
         />
       </section>
@@ -178,13 +220,14 @@ export default async function DashboardPage({
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-zinc-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-zinc-900">
-            Budget vs actual{latest ? ` · ${monthLabel(latest.month)}` : ""}
+            Budget vs actual{latestMonthName ? ` · ${latestMonthName}` : ""}
+            <span className="ml-1 font-normal text-zinc-400">(budgets are monthly)</span>
           </h2>
           <div className="mt-4">
             <BudgetVsActual
               rows={budgetRows}
               currency={currency}
-              monthName={latest ? monthLabel(latest.month) : ""}
+              monthName={latestMonthName}
             />
           </div>
         </section>

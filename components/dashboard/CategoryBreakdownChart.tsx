@@ -16,13 +16,19 @@ import { formatMoney } from "@/lib/analytics";
 /**
  * "Which category was most expensive?" — emphasis form: the top category in
  * the accent hue, the rest recessive gray, every bar direct-labeled.
+ * Click a bar to drill into that category's transactions; the selected bar
+ * takes the accent.
  */
 export default function CategoryBreakdownChart({
   data,
   currency,
+  selectedCategory,
+  onSelectCategory,
 }: {
   data: Array<{ category: string; total: number }>;
   currency: string;
+  selectedCategory?: string | null;
+  onSelectCategory?: (category: string) => void;
 }) {
   const rows = data.filter((d) => d.total > 0);
   if (rows.length === 0) {
@@ -55,18 +61,35 @@ export default function CategoryBreakdownChart({
             return (
               <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs shadow-sm">
                 <p className="font-medium text-zinc-900">{p.category}</p>
-                <p className="text-zinc-600">{formatMoney(p.total, currency)}</p>
+                <p className="text-zinc-600">{formatMoney(p.total, currency)} net of refunds</p>
+                {onSelectCategory && (
+                  <p className="mt-0.5 text-[10px] text-zinc-400">Click to see transactions</p>
+                )}
               </div>
             );
           }}
         />
-        <Bar dataKey="total" radius={[0, 4, 4, 0]} isAnimationActive={false}>
-          {rows.map((row, i) => (
-            <Cell
-              key={row.category}
-              fill={i === 0 ? chart.accent : chart.deemphasis}
-            />
-          ))}
+        <Bar
+          dataKey="total"
+          radius={[0, 4, 4, 0]}
+          isAnimationActive={false}
+          cursor={onSelectCategory ? "pointer" : undefined}
+          onClick={(entry) => {
+            const cat = (entry as { category?: string })?.category;
+            if (cat && onSelectCategory) onSelectCategory(cat);
+          }}
+        >
+          {rows.map((row, i) => {
+            const isSelected = selectedCategory === row.category;
+            const fill = selectedCategory
+              ? isSelected
+                ? chart.accent
+                : chart.deemphasis
+              : i === 0
+                ? chart.accent
+                : chart.deemphasis;
+            return <Cell key={row.category} fill={fill} />;
+          })}
           <LabelList
             dataKey="total"
             position="right"

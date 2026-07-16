@@ -188,3 +188,21 @@ export function monthLabel(month: string): string {
     year: "2-digit",
   });
 }
+
+function shortDate(iso: string, withYear = false): string {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short",
+    ...(withYear ? { year: "2-digit" } : {}),
+  });
+}
+
+/** Chart label for a statement column, e.g. "15 Jun – 16 Jul 26". */
+export function statementLabel(s: Statement): string {
+  if (s.period_start && s.period_end) {
+    return `${shortDate(s.period_start)} – ${shortDate(s.period_end, true)}`;
+  }
+  return `Uploaded ${shortDate(s.uploaded_at, true)}`;
+}

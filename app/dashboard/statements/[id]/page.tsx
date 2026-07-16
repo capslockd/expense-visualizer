@@ -10,7 +10,7 @@ import {
   totalNetSpend,
 } from "@/lib/analytics";
 import StatTiles, { Tile } from "@/components/dashboard/StatTiles";
-import CategoryBreakdownChart from "@/components/dashboard/CategoryBreakdownChart";
+import StatementExplorer from "@/components/dashboard/StatementExplorer";
 import TopMerchants from "@/components/dashboard/TopMerchants";
 import TxnTable from "@/components/dashboard/TxnTable";
 
@@ -79,9 +79,13 @@ export default async function StatementPage({
             Spending by category
           </h2>
           <p className="mb-4 text-xs text-zinc-500">
-            Net of refunds · the top category is highlighted
+            Net of refunds · click a category to see its transactions
           </p>
-          <CategoryBreakdownChart data={breakdown} currency={currency} />
+          <StatementExplorer
+            breakdown={breakdown}
+            txns={txns}
+            currency={currency}
+          />
         </section>
 
         <section className="rounded-xl border border-zinc-200 bg-white p-5">
