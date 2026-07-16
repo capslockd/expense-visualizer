@@ -33,7 +33,7 @@ const SaveSchema = z.object({
         direction: z.enum(["debit", "credit"]),
         currency: z.string().min(1),
         category: z.string(),
-        categorized_by: z.enum(["ai", "rule", "user"]),
+        categorized_by: z.enum(["ai", "rule", "user", "keyword"]),
         remember: z.boolean().optional(),
         ai_proposal: z.string().nullable(),
       }),

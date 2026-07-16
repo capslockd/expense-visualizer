@@ -1,5 +1,5 @@
 export type Direction = "debit" | "credit";
-export type CategorizedBy = "ai" | "rule" | "user";
+export type CategorizedBy = "ai" | "rule" | "user" | "keyword";
 export type AuthProvider = "google" | "credentials" | "both";
 
 export interface User {
@@ -66,7 +66,7 @@ export interface ExtractedTxn {
   currency: string;
   category: string | null;
   needs_review: boolean;
-  categorized_by: "ai" | "rule";
+  categorized_by: "ai" | "rule" | "keyword";
   confidence_note: string | null;
 }
 

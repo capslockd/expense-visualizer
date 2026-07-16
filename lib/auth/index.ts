@@ -10,6 +10,7 @@ export function googleAuthEnabled(): boolean {
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
+  trustHost: true, // self-hosted app (localhost / own server), not behind Vercel
   providers: [
     ...(googleAuthEnabled()
       ? [

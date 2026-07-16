@@ -20,8 +20,13 @@ type Flow =
   | { step: "saving" }
   | { step: "saved"; statementId: string };
 
+const CURRENCY_OPTIONS = [
+  "SGD", "USD", "PHP", "EUR", "GBP", "MYR", "JPY", "AUD", "HKD", "IDR", "INR",
+];
+
 export default function UploadFlow() {
   const [flow, setFlow] = useState<Flow>({ step: "idle" });
+  const [parser, setParser] = useState<"ai" | "basic">("ai");
   const [error, setError] = useState<string | null>(null);
   const [statement, setStatement] = useState<ExtractedStatement | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -49,6 +54,7 @@ export default function UploadFlow() {
     try {
       const form = new FormData();
       form.append("file", file);
+      form.append("parser", parser);
       const res = await fetch("/api/extract", { method: "POST", body: form });
       const body = await res.json();
       if (!res.ok) {
@@ -98,6 +104,15 @@ export default function UploadFlow() {
   function handleRememberChange(tempId: string, remember: boolean) {
     setRows((prev) =>
       prev.map((r) => (r.tempId === tempId ? { ...r, remember } : r)),
+    );
+  }
+
+  function handleCurrencyChange(next: string) {
+    if (!statement) return;
+    const prev = statement.currency;
+    setStatement({ ...statement, currency: next });
+    setRows((rs) =>
+      rs.map((r) => (r.currency === prev ? { ...r, currency: next } : r)),
     );
   }
 
@@ -181,14 +196,55 @@ export default function UploadFlow() {
             {error}
           </div>
         )}
+
+        <fieldset className="flex flex-wrap gap-3" disabled={flow.step === "extracting"}>
+          <legend className="sr-only">Parsing engine</legend>
+          {(
+            [
+              {
+                value: "ai" as const,
+                title: "AI parsing",
+                desc: "Best accuracy · any format (PDF, image, CSV, Excel) · needs Anthropic API credits",
+              },
+              {
+                value: "basic" as const,
+                title: "Basic parsing (no AI)",
+                desc: "Free · CSV and Excel only · categorizes by known merchants, asks you about the rest",
+              },
+            ]
+          ).map((opt) => (
+            <label
+              key={opt.value}
+              className={`flex-1 basis-60 cursor-pointer rounded-xl border p-3 transition-colors ${
+                parser === opt.value
+                  ? "border-zinc-900 bg-white ring-1 ring-zinc-900"
+                  : "border-zinc-200 bg-white hover:border-zinc-400"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="parser"
+                  value={opt.value}
+                  checked={parser === opt.value}
+                  onChange={() => setParser(opt.value)}
+                  className="h-3.5 w-3.5 accent-zinc-900"
+                />
+                <span className="text-sm font-medium text-zinc-900">{opt.title}</span>
+              </div>
+              <p className="mt-1 pl-5 text-xs text-zinc-500">{opt.desc}</p>
+            </label>
+          ))}
+        </fieldset>
+
         <Dropzone onFile={handleFile} disabled={flow.step === "extracting"} />
         {flow.step === "extracting" && (
           <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white p-4">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900" />
             <div className="text-sm text-zinc-700">
               Reading <span className="font-medium">{flow.filename}</span> and
-              categorizing every transaction… this can take a minute for long
-              statements.
+              categorizing every transaction…
+              {parser === "ai" ? " this can take a minute for long statements." : ""}
             </div>
           </div>
         )}
@@ -246,11 +302,25 @@ export default function UploadFlow() {
           <h2 className="text-lg font-semibold">
             {statement?.source_filename}
           </h2>
-          <p className="text-sm text-zinc-500">
+          <p className="flex items-center gap-1.5 text-sm text-zinc-500">
             {statement?.period_start && statement?.period_end
               ? `${statement.period_start} → ${statement.period_end} · `
               : ""}
-            {rows.length} transactions · {statement?.currency}
+            {rows.length} transactions ·
+            <select
+              value={statement?.currency ?? ""}
+              onChange={(e) => handleCurrencyChange(e.target.value)}
+              aria-label="Statement currency"
+              className="rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs text-zinc-700 focus:border-zinc-900 focus:outline-none"
+            >
+              {[...new Set([statement?.currency ?? "USD", ...CURRENCY_OPTIONS])].map(
+                (c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ),
+              )}
+            </select>
           </p>
         </div>
         <button

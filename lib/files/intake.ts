@@ -30,13 +30,13 @@ function looksTextual(buf: Buffer): boolean {
   return sample.length > 0 && printable / sample.length > 0.97;
 }
 
-function spreadsheetToCsvText(buf: Buffer, filename: string): string {
+function spreadsheetToCsvText(buf: Buffer): string {
   const wb = XLSX.read(buf, { type: "buffer" });
   const sections = wb.SheetNames.map((name) => {
     const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]);
     return `### Sheet: ${name}\n${csv}`;
   });
-  return `Spreadsheet file "${filename}" converted to CSV:\n\n${sections.join("\n\n")}`;
+  return sections.join("\n\n");
 }
 
 export function intakeFile(buffer: Buffer, filename: string): IntakeResult {
@@ -86,7 +86,7 @@ export function intakeFile(buffer: Buffer, filename: string): IntakeResult {
   const isCfb = startsWith(buffer, [0xd0, 0xcf, 0x11, 0xe0]);
   if (isZip || isCfb) {
     try {
-      return { kind: "text", text: spreadsheetToCsvText(buffer, filename), label: filename };
+      return { kind: "text", text: spreadsheetToCsvText(buffer), label: filename };
     } catch {
       return {
         kind: "error",
@@ -99,11 +99,7 @@ export function intakeFile(buffer: Buffer, filename: string): IntakeResult {
   // CSV / plain text
   const ext = filename.toLowerCase().split(".").pop() ?? "";
   if (["csv", "txt", "tsv"].includes(ext) || looksTextual(buffer)) {
-    return {
-      kind: "text",
-      text: `CSV/text statement file "${filename}":\n\n${buffer.toString("utf8")}`,
-      label: filename,
-    };
+    return { kind: "text", text: buffer.toString("utf8"), label: filename };
   }
 
   return {

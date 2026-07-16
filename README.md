@@ -20,6 +20,13 @@ created it. All data lives in your own Google Sheet — no database.
    transaction with a structured-output schema. Your saved merchant→category
    rules are applied automatically; anything the AI can't confidently place is
    flagged for review.
+   - **No AI credits? Use Basic parsing.** The upload screen has a
+     "Basic parsing (no AI)" option that reads CSV/Excel exports
+     deterministically and categorizes by a built-in merchant-keyword
+     dictionary plus your learned rules — everything else is flagged for you
+     to categorize by hand. If AI parsing fails because the Anthropic account
+     has no credits, the app falls back to Basic automatically for CSV/Excel
+     files. PDFs and images always need AI.
 3. **Review** → amber rows need your decision; Save stays disabled until every
    transaction has a category. "Remember this merchant" (on by default) turns
    your choices into rules for next time.
@@ -71,8 +78,14 @@ render.
 ```sh
 npm install
 npm run bootstrap   # creates the 5 tabs + headers in your sheet (idempotent)
-npm run dev         # http://localhost:3000
+npm run build && npm start   # http://localhost:3000
 ```
+
+> **Why `build && start` instead of `npm run dev`?** Next 16's Turbopack dev
+> mode currently crashes the two chart pages (`/dashboard`,
+> `/dashboard/statements/[id]`) with an RSC serialization bug
+> ("ArrayBuffer is not detachable"). The production build renders them fine.
+> `npm run dev` still works for developing everything else.
 
 ## The Google Sheet schema
 
