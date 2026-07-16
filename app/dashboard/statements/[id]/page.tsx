@@ -1,0 +1,103 @@
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
+import { getStatementById, getTransactionsByStatement } from "@/lib/sheets/repo";
+import {
+  formatMoney,
+  netByCategory,
+  topMerchants,
+  totalMoneyIn,
+  totalNetSpend,
+} from "@/lib/analytics";
+import StatTiles, { Tile } from "@/components/dashboard/StatTiles";
+import CategoryBreakdownChart from "@/components/dashboard/CategoryBreakdownChart";
+import TopMerchants from "@/components/dashboard/TopMerchants";
+import TxnTable from "@/components/dashboard/TxnTable";
+
+export const dynamic = "force-dynamic";
+export const metadata = { title: "Statement — Expense Visualizer" };
+
+export default async function StatementPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const session = await auth();
+  if (!session?.user) redirect("/login?from=/dashboard");
+  const userId = session.user.id;
+
+  const { id } = await params;
+  const statement = await getStatementById(userId, id);
+  if (!statement) notFound();
+
+  const txns = await getTransactionsByStatement(userId, id);
+  const currency = statement.currency || txns[0]?.currency || "USD";
+
+  const breakdown = netByCategory(txns);
+  const top = breakdown[0];
+
+  const tiles: Tile[] = [
+    {
+      label: "Net spend",
+      value: formatMoney(totalNetSpend(txns), currency),
+      sub: "refunds netted, payments excluded",
+    },
+    {
+      label: "Most expensive category",
+      value: top?.category ?? "—",
+      sub: top ? formatMoney(top.total, currency) : undefined,
+    },
+    { label: "Transactions", value: String(txns.length) },
+    {
+      label: "Money in",
+      value: formatMoney(totalMoneyIn(txns), currency),
+    },
+  ];
+
+  return (
+    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
+      <Link href="/dashboard" className="text-sm text-zinc-500 hover:text-zinc-900">
+        ← Dashboard
+      </Link>
+      <h1 className="mt-2 text-2xl font-semibold">
+        {statement.period_start && statement.period_end
+          ? `${statement.period_start} → ${statement.period_end}`
+          : statement.source_filename}
+      </h1>
+      <p className="mt-1 text-sm text-zinc-500">
+        {statement.source_filename} · uploaded{" "}
+        {statement.uploaded_at.slice(0, 10)} · {currency}
+      </p>
+
+      <div className="mt-5">
+        <StatTiles tiles={tiles} />
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <section className="rounded-xl border border-zinc-200 bg-white p-5 lg:col-span-2">
+          <h2 className="text-sm font-semibold text-zinc-900">
+            Spending by category
+          </h2>
+          <p className="mb-4 text-xs text-zinc-500">
+            Net of refunds · the top category is highlighted
+          </p>
+          <CategoryBreakdownChart data={breakdown} currency={currency} />
+        </section>
+
+        <section className="rounded-xl border border-zinc-200 bg-white p-5">
+          <h2 className="mb-3 text-sm font-semibold text-zinc-900">
+            Top merchants
+          </h2>
+          <TopMerchants rows={topMerchants(txns)} currency={currency} />
+        </section>
+      </div>
+
+      <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
+        <h2 className="mb-3 text-sm font-semibold text-zinc-900">
+          All transactions ({txns.length})
+        </h2>
+        <TxnTable txns={txns} />
+      </section>
+    </main>
+  );
+}
