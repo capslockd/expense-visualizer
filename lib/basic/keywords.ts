@@ -61,7 +61,9 @@ const KEYWORDS: Array<[string, string]> = [
   ["LINKT", "Transport"], ["CITYLINK", "Transport"], ["EASTLINK", "Transport"],
   ["E TOLL", "Transport"], ["ETOLL", "Transport"], ["TRANSURBAN", "Transport"],
   ["WILSON PARKING", "Transport"], ["SECURE PARKING", "Transport"],
-  ["CARE PARK", "Transport"], ["PARKING", "Transport"],
+  ["CARE PARK", "Transport"], ["PARKING", "Transport"], ["EASYPARK", "Transport"],
+  ["TESLA", "Transport"], ["EVIE NETWORKS", "Transport"], ["CHARGEFOX", "Transport"],
+  ["VICROADS", "Transport"], ["SERVICE NSW", "Transport"],
 
   // --- Utilities & telecom ----------------------------------------------
   ["TELSTRA", "Utilities"], ["OPTUS", "Utilities"], ["VODAFONE", "Utilities"],
@@ -100,7 +102,7 @@ const KEYWORDS: Array<[string, string]> = [
   ["SUPERCHEAP AUTO", "Shopping"], ["REPCO", "Shopping"], ["DECATHLON", "Shopping"],
   ["SPOTLIGHT", "Shopping"], ["FANTASTIC FURNITURE", "Shopping"],
   ["FREEDOM FURNITURE", "Shopping"], ["ETSY", "Shopping"], ["TEMU", "Shopping"],
-  ["SHEIN", "Shopping"], ["ALIEXPRESS", "Shopping"],
+  ["SHEIN", "Shopping"], ["ALIEXPRESS", "Shopping"], ["TAOBAO", "Shopping"],
 
   // --- Health --------------------------------------------------------------
   ["CHEMIST WAREHOUSE", "Health"], ["PRICELINE", "Health"], ["TERRYWHITE", "Health"],

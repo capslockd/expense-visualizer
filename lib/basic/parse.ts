@@ -11,6 +11,10 @@ export interface ParsedRow {
   description: string;
   amount: number; // always positive
   direction: "debit" | "credit";
+  /** Bank-provided merchant name column, when the export has one. */
+  merchant: string | null;
+  /** Bank-provided category column, when the export has one. */
+  bank_category: string | null;
 }
 
 export interface BasicParseResult {
@@ -90,12 +94,14 @@ function parseDate(raw: string, dayFirst: boolean): string | null {
     return dayFirst ? toIso(y, b, a) : toIso(y, a, b);
   }
 
-  m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,})\.?,?\s+(\d{2,4})$/);
+  // Textual month, any of space/hyphen/dot/slash separators: "16 Jul 2026",
+  // "16-Jul-26" (common in AU bank exports), "16.Jul.26"
+  m = s.match(/^(\d{1,2})[\s\-/.]+([A-Za-z]{3,9})\.?,?[\s\-/.]+(\d{2,4})$/);
   if (m && MONTHS[m[2].slice(0, 3).toUpperCase()]) {
     return toIso(+m[3], MONTHS[m[2].slice(0, 3).toUpperCase()], +m[1]);
   }
 
-  m = s.match(/^([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{2,4})$/);
+  m = s.match(/^([A-Za-z]{3,9})\.?,?[\s\-/.]+(\d{1,2})[\s\-/.]+(\d{2,4})$/);
   if (m && MONTHS[m[1].slice(0, 3).toUpperCase()]) {
     return toIso(+m[3], MONTHS[m[1].slice(0, 3).toUpperCase()], +m[2]);
   }
@@ -178,6 +184,8 @@ interface Columns {
   debitIdx: number;
   creditIdx: number;
   currencyIdx: number;
+  merchantIdx: number; // bank-provided merchant name column
+  bankCategoryIdx: number; // bank-provided category column
 }
 
 function detectColumns(rows: string[][]): Columns | null {
@@ -200,9 +208,16 @@ function detectColumns(rows: string[][]): Columns | null {
     const debitIdx = row.findIndex((h) => /debit|withdrawal/i.test(h) && !isBalance(h));
     const creditIdx = row.findIndex((h) => /credit|deposit/i.test(h) && !isBalance(h) && !/credit card/i.test(h));
     const amountIdx = row.findIndex((h) => /amount|value/i.test(h) && !isBalance(h) && !/date/i.test(h));
-    const descIdx = row.findIndex((h) =>
-      /desc|detail|narrat|particular|merchant|payee|reference|transaction(?!.*date)/i.test(h),
+    // Real text of the line item. "Transaction Details" yes; "Transaction Type"
+    // (PURCHASE AUTHORISATION / CREDIT CARD PURCHASE labels) no.
+    let descIdx = row.findIndex((h) =>
+      /desc(?!ending)|detail|narrat|particular|payee/i.test(h),
     );
+    if (descIdx === -1) {
+      descIdx = row.findIndex((h) => /reference|transaction(?!\s*(date|type))/i.test(h));
+    }
+    const merchantIdx = row.findIndex((h) => /merchant/i.test(h));
+    const bankCategoryIdx = row.findIndex((h) => /^category$/i.test(h.trim()));
     const currencyIdx = row.findIndex((h) => /^curr|ccy/i.test(h));
 
     const pair = debitIdx !== -1 && creditIdx !== -1 && debitIdx !== creditIdx;
@@ -211,11 +226,13 @@ function detectColumns(rows: string[][]): Columns | null {
     return {
       headerRowIdx: i,
       dateIdx: finalDateIdx,
-      descIdx: descIdx !== -1 ? descIdx : -1,
+      descIdx,
       amountIdx: pair ? -1 : amountIdx,
       debitIdx: pair ? debitIdx : -1,
       creditIdx: pair ? creditIdx : -1,
       currencyIdx,
+      merchantIdx,
+      bankCategoryIdx,
     };
   }
 
@@ -241,6 +258,8 @@ function detectColumns(rows: string[][]): Columns | null {
     debitIdx: -1,
     creditIdx: -1,
     currencyIdx: -1,
+    merchantIdx: -1,
+    bankCategoryIdx: -1,
   };
 }
 
@@ -292,6 +311,8 @@ function parseSection(text: string): BasicParseResult | null {
     description: string;
     signed: number;
     marker: "debit" | "credit" | null;
+    merchant: string | null;
+    bank_category: string | null;
   }
   const raw: RawTxn[] = [];
   let currency: string | null = null;
@@ -301,15 +322,21 @@ function parseSection(text: string): BasicParseResult | null {
     if (!date) continue;
     const description = (descIdx !== -1 ? (r[descIdx] ?? "") : r.filter((c) => c.trim()).join(" ")).trim();
     if (/^(opening|closing|previous|brought forward|carried forward|sub ?total|total)\b/i.test(description)) continue;
+    const merchant =
+      cols.merchantIdx !== -1 ? (r[cols.merchantIdx] ?? "").trim() || null : null;
+    const bank_category =
+      cols.bankCategoryIdx !== -1
+        ? (r[cols.bankCategoryIdx] ?? "").trim() || null
+        : null;
 
     if (cols.debitIdx !== -1) {
       const dr = parseAmount(r[cols.debitIdx] ?? "");
       const cr = parseAmount(r[cols.creditIdx] ?? "");
       currency ??= dr?.currencyHint ?? cr?.currencyHint ?? null;
       if (dr && Math.abs(dr.value) > 0) {
-        raw.push({ date, description, signed: -Math.abs(dr.value), marker: "debit" });
+        raw.push({ date, description, signed: -Math.abs(dr.value), marker: "debit", merchant, bank_category });
       } else if (cr && Math.abs(cr.value) > 0) {
-        raw.push({ date, description, signed: Math.abs(cr.value), marker: "credit" });
+        raw.push({ date, description, signed: Math.abs(cr.value), marker: "credit", merchant, bank_category });
       }
     } else {
       const amt = parseAmount(r[cols.amountIdx] ?? "");
@@ -318,7 +345,7 @@ function parseSection(text: string): BasicParseResult | null {
       if (cols.currencyIdx !== -1 && r[cols.currencyIdx]?.trim()) {
         currency ??= r[cols.currencyIdx].trim().toUpperCase().slice(0, 3);
       }
-      raw.push({ date, description, signed: amt.value, marker: amt.marker });
+      raw.push({ date, description, signed: amt.value, marker: amt.marker, merchant, bank_category });
     }
   }
 
@@ -358,6 +385,8 @@ function parseSection(text: string): BasicParseResult | null {
       description: t.description,
       amount: Math.round(Math.abs(t.signed) * 100) / 100,
       direction,
+      merchant: t.merchant,
+      bank_category: t.bank_category,
     };
   });
 

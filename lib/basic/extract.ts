@@ -5,6 +5,95 @@ import { Category } from "@/lib/types";
 import { basicParse } from "./parse";
 import { matchKeyword } from "./keywords";
 
+/**
+ * Common Australian bank category names → this app's categories.
+ * Used as a FALLBACK when our curated keyword dictionary has no opinion —
+ * bank exports (ANZ, CommBank, Westpac, NAB, Up, ING…) often ship their own
+ * category column, and mapping its vocabulary saves a lot of manual review.
+ * Names with no clean equivalent (e.g. "Pets") are deliberately absent —
+ * those go to review so the user can pick (or create) the right category.
+ */
+const BANK_CATEGORY_SYNONYMS: Record<string, string> = {
+  groceries: "Groceries",
+  supermarkets: "Groceries",
+  "dining": "Dining",
+  "eating out": "Dining",
+  restaurants: "Dining",
+  cafes: "Dining",
+  "cafes & coffee": "Dining",
+  takeaway: "Dining",
+  "takeaway food": "Dining",
+  "food delivery": "Dining",
+  "food & drink": "Dining",
+  "pubs & bars": "Dining",
+  transport: "Transport",
+  "public transport": "Transport",
+  "vehicle expenses": "Transport",
+  fuel: "Transport",
+  petrol: "Transport",
+  parking: "Transport",
+  "parking & tolls": "Transport",
+  tolls: "Transport",
+  rideshare: "Transport",
+  "taxis & rideshare": "Transport",
+  "car expenses": "Transport",
+  utilities: "Utilities",
+  internet: "Utilities",
+  "phone & internet": "Utilities",
+  "mobile phone": "Utilities",
+  electricity: "Utilities",
+  "gas & electricity": "Utilities",
+  water: "Utilities",
+  entertainment: "Entertainment",
+  "movies & music": "Entertainment",
+  games: "Entertainment",
+  hobbies: "Entertainment",
+  shopping: "Shopping",
+  "other shopping": "Shopping",
+  "clothing & accessories": "Shopping",
+  "clothes & shoes": "Shopping",
+  homeware: "Shopping",
+  "home improvements": "Shopping",
+  electronics: "Shopping",
+  "electronics & appliances": "Shopping",
+  "department stores": "Shopping",
+  "online shopping": "Shopping",
+  health: "Health",
+  "health & medical": "Health",
+  medical: "Health",
+  pharmacy: "Health",
+  fitness: "Health",
+  "gym & fitness": "Health",
+  "personal care": "Health",
+  travel: "Travel",
+  holidays: "Travel",
+  accommodation: "Travel",
+  flights: "Travel",
+  subscriptions: "Subscriptions",
+  memberships: "Subscriptions",
+  streaming: "Subscriptions",
+  rent: "Housing",
+  mortgage: "Housing",
+  "mortgage & rent": "Housing",
+  housing: "Housing",
+  insurance: "Insurance",
+  education: "Education",
+  "education & training": "Education",
+  "fees & charges": "Fees & Charges",
+  "bank fees": "Fees & Charges",
+  fees: "Fees & Charges",
+  interest: "Fees & Charges",
+  salary: "Income & Refunds",
+  wages: "Income & Refunds",
+  income: "Income & Refunds",
+  transfers: "Payments & Transfers",
+  transfer: "Payments & Transfers",
+  payments: "Payments & Transfers",
+  "credit card payment": "Payments & Transfers",
+  "credit card payments": "Payments & Transfers",
+  "internal transfer": "Payments & Transfers",
+};
+
 /** Light display cleanup — strip processor prefixes and trailing reference codes. */
 function cleanDisplayMerchant(description: string): string {
   let s = description
@@ -35,6 +124,10 @@ export function basicExtract(
   }
 
   const validCategories = new Set(categories.map((c) => c.name));
+  // Case-insensitive lookup so a bank-provided "GROCERIES" maps to "Groceries".
+  const categoryByLower = new Map(
+    categories.map((c) => [c.name.toLowerCase(), c.name]),
+  );
   const warnings = [...parsed.warnings];
   let currency = parsed.currency;
   if (!currency) {
@@ -52,11 +145,24 @@ export function basicExtract(
     account_hint: null,
     warnings,
     transactions: parsed.transactions.map((t) => {
-      const merchant = cleanDisplayMerchant(t.description);
-      const keywordCategory = matchKeyword(
-        normalizeMerchant(t.description),
-        validCategories,
-      );
+      // Prefer the bank's own merchant column when the export has one.
+      const merchant = t.merchant || cleanDisplayMerchant(t.description);
+      // Category precedence: our curated keyword dictionary first (it encodes
+      // this app's semantics, e.g. Coles Express = fuel), then the bank's
+      // category column — exact name match or a known synonym.
+      const bankRaw = t.bank_category?.toLowerCase().trim() ?? null;
+      const bankCategory = bankRaw
+        ? (categoryByLower.get(bankRaw) ??
+          (BANK_CATEGORY_SYNONYMS[bankRaw] &&
+          validCategories.has(BANK_CATEGORY_SYNONYMS[bankRaw])
+            ? BANK_CATEGORY_SYNONYMS[bankRaw]
+            : null))
+        : null;
+      const proposed =
+        matchKeyword(
+          normalizeMerchant(`${t.description} ${t.merchant ?? ""}`),
+          validCategories,
+        ) ?? bankCategory;
       return {
         date: t.date,
         description: t.description,
@@ -64,9 +170,9 @@ export function basicExtract(
         amount: t.amount,
         direction: t.direction,
         currency: currency as string,
-        proposed_category: keywordCategory,
-        needs_review: keywordCategory === null,
-        confidence_note: keywordCategory === null ? "no keyword match" : null,
+        proposed_category: proposed,
+        needs_review: proposed === null,
+        confidence_note: proposed === null ? "no keyword match" : null,
       };
     }),
   };
