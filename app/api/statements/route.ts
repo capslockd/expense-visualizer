@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSessionUserId } from "@/lib/auth";
 import {
+  deleteAllStatementData,
   findStatementByHash,
   getCategories,
   getRules,
@@ -47,6 +48,19 @@ export async function GET() {
   if (!userId) return apiError(401, "UNAUTHORIZED", "Sign in first.");
   const statements = await getStatements(userId);
   return NextResponse.json({ statements });
+}
+
+/** Delete ALL of the signed-in user's statements and transactions. */
+export async function DELETE(req: Request) {
+  const userId = await getSessionUserId();
+  if (!userId) return apiError(401, "UNAUTHORIZED", "Sign in first.");
+  // Deliberate friction for a destructive bulk action.
+  const confirm = new URL(req.url).searchParams.get("confirm");
+  if (confirm !== "all") {
+    return apiError(400, "CONFIRM_REQUIRED", "Pass ?confirm=all to delete every statement.");
+  }
+  const result = await deleteAllStatementData(userId);
+  return NextResponse.json({ ok: true, ...result });
 }
 
 export async function POST(req: Request) {

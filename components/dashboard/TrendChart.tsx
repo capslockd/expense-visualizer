@@ -35,7 +35,7 @@ export default function TrendChart({
   rankedCategories: string[];
   currency: string;
   selectedCategory: string | null;
-  onSelectCategory: (category: string) => void;
+  onSelectCategory: (category: string, periodKey?: string) => void;
 }) {
   if (periods.length === 0) {
     return (
@@ -52,6 +52,7 @@ export default function TrendChart({
   const rows = periods.map((p) => {
     const row: Record<string, unknown> = {
       label: p.label,
+      __key: p.key,
       __total: p.total,
       __actual: p.byCategory,
     };
@@ -186,7 +187,10 @@ export default function TrendChart({
             radius={i === seriesKeys.length - 1 ? [3, 3, 0, 0] : undefined}
             isAnimationActive={false}
             cursor="pointer"
-            onClick={() => onSelectCategory(key)}
+            onClick={(data) => {
+              const d = data as { payload?: { __key?: string }; __key?: string };
+              onSelectCategory(key, d?.payload?.__key ?? d?.__key);
+            }}
           />
         ))}
       </BarChart>

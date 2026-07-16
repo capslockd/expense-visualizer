@@ -71,6 +71,56 @@ export function newId(prefix: "usr" | "stmt" | "txn"): string {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
+let sheetIdCache: Map<string, number> | null = null;
+
+/** Numeric sheetId per tab title (needed for row-deletion requests). */
+async function getSheetIds(): Promise<Map<string, number>> {
+  if (!sheetIdCache) {
+    await ensureSheetSetup();
+    const meta = await getSheets().spreadsheets.get({
+      spreadsheetId: getSpreadsheetId(),
+      fields: "sheets.properties(sheetId,title)",
+    });
+    sheetIdCache = new Map(
+      (meta.data.sheets ?? []).map((s) => [
+        s.properties?.title ?? "",
+        s.properties?.sheetId ?? -1,
+      ]),
+    );
+  }
+  return sheetIdCache;
+}
+
+/** Delete specific 1-based rows from a tab (bottom-up, single batch request). */
+async function deleteRows(
+  requests: Array<{ tab: keyof typeof TABS; rowNumbers: number[] }>,
+): Promise<void> {
+  const sheetIds = await getSheetIds();
+  const deletions = requests.flatMap(({ tab, rowNumbers }) => {
+    const sheetId = sheetIds.get(tab);
+    if (sheetId === undefined || sheetId === -1) return [];
+    return rowNumbers.map((rowNumber) => ({ sheetId, rowNumber }));
+  });
+  if (deletions.length === 0) return;
+  // Bottom-up so earlier deletions don't shift later indices.
+  deletions.sort((a, b) => b.rowNumber - a.rowNumber);
+  await getSheets().spreadsheets.batchUpdate({
+    spreadsheetId: getSpreadsheetId(),
+    requestBody: {
+      requests: deletions.map((d) => ({
+        deleteDimension: {
+          range: {
+            sheetId: d.sheetId,
+            dimension: "ROWS",
+            startIndex: d.rowNumber - 1,
+            endIndex: d.rowNumber,
+          },
+        },
+      })),
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
@@ -293,6 +343,94 @@ export async function getTransactionsByStatement(
 ): Promise<Txn[]> {
   const all = await getTransactions(userId);
   return all.filter((t) => t.statement_id === statementId);
+}
+
+/**
+ * Change one transaction's category (user re-categorization from the
+ * statement view). Returns the row's merchant_normalized so the caller can
+ * update the learned rules.
+ */
+export async function updateTransactionCategory(
+  userId: string,
+  txnId: string,
+  category: string,
+): Promise<{ merchant_normalized: string; previous_category: string } | null> {
+  const rows = await readTab("Transactions");
+  const hit = rows.find(
+    (r) => asString(r.cells.id) === txnId && asString(r.cells.user_id) === userId,
+  );
+  if (!hit) return null;
+  await getSheets().spreadsheets.values.batchUpdate({
+    spreadsheetId: getSpreadsheetId(),
+    requestBody: {
+      valueInputOption: "RAW",
+      // Transactions columns: … K=category, L=categorized_by
+      data: [
+        { range: `Transactions!K${hit.rowNumber}:L${hit.rowNumber}`, values: [[category, "user"]] },
+      ],
+    },
+  });
+  return {
+    merchant_normalized: asString(hit.cells.merchant_normalized),
+    previous_category: asString(hit.cells.category),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Delete (user-requested removal of statement data)
+// ---------------------------------------------------------------------------
+
+/** Delete one statement and every transaction in it. Learned rules stay. */
+export async function deleteStatementData(
+  userId: string,
+  statementId: string,
+): Promise<{ deleted_transactions: number } | null> {
+  const [txnRows, stmtRows] = await Promise.all([
+    readTab("Transactions"),
+    readTab("Statements"),
+  ]);
+  const stmt = stmtRows.find(
+    (r) =>
+      asString(r.cells.id) === statementId &&
+      asString(r.cells.user_id) === userId,
+  );
+  if (!stmt) return null;
+  const txnNumbers = txnRows
+    .filter(
+      (r) =>
+        asString(r.cells.statement_id) === statementId &&
+        asString(r.cells.user_id) === userId,
+    )
+    .map((r) => r.rowNumber);
+  await deleteRows([
+    { tab: "Transactions", rowNumbers: txnNumbers },
+    { tab: "Statements", rowNumbers: [stmt.rowNumber] },
+  ]);
+  return { deleted_transactions: txnNumbers.length };
+}
+
+/** Delete ALL of a user's statements and transactions. Rules and categories stay. */
+export async function deleteAllStatementData(
+  userId: string,
+): Promise<{ deleted_statements: number; deleted_transactions: number }> {
+  const [txnRows, stmtRows] = await Promise.all([
+    readTab("Transactions"),
+    readTab("Statements"),
+  ]);
+  const txnNumbers = txnRows
+    .filter((r) => asString(r.cells.user_id) === userId)
+    .map((r) => r.rowNumber);
+  const stmtNumbers = stmtRows
+    .filter((r) => asString(r.cells.user_id) === userId)
+    .map((r) => r.rowNumber);
+  await deleteRows([
+    { tab: "Transactions", rowNumbers: txnNumbers },
+    { tab: "Statements", rowNumbers: stmtNumbers },
+  ]);
+  return {
+    deleted_statements: stmtNumbers.length,
+    deleted_transactions: txnNumbers.length,
+  };
 }
 
 // ---------------------------------------------------------------------------

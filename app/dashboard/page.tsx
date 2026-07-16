@@ -9,11 +9,18 @@ import {
   formatMoney,
   monthLabel,
   netByCategory,
+  topMerchantPerCategory,
+  topMerchantPerPeriod,
   totalMoneyIn,
 } from "@/lib/analytics";
 import StatTiles, { Tile } from "@/components/dashboard/StatTiles";
 import TrendExplorer from "@/components/dashboard/TrendExplorer";
 import BudgetVsActual from "@/components/dashboard/BudgetVsActual";
+import TopMerchantViz from "@/components/dashboard/TopMerchantViz";
+import {
+  DeleteAllStatementsButton,
+  DeleteStatementIcon,
+} from "@/components/dashboard/DeleteButtons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard — Expense Visualizer" };
@@ -214,6 +221,21 @@ export default async function DashboardPage({
           rankedCategories={ranked}
           txns={txns}
           currency={currency}
+          group={group}
+        />
+      </section>
+
+      <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
+        <h2 className="text-sm font-semibold text-zinc-900">Top merchant</h2>
+        <p className="mb-4 text-xs text-zinc-500">
+          The single biggest merchant (net of refunds) inside each{" "}
+          {group === "statement" ? "statement" : "month"} and each category
+        </p>
+        <TopMerchantViz
+          perPeriod={topMerchantPerPeriod(txns, periods, group)}
+          perCategory={topMerchantPerCategory(txns)}
+          periodNoun={group === "statement" ? "statement" : "month"}
+          currency={currency}
         />
       </section>
 
@@ -235,29 +257,35 @@ export default async function DashboardPage({
         <section className="rounded-xl border border-zinc-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-zinc-900">Statements</h2>
           <ul className="mt-3 divide-y divide-zinc-100">
-            {sortedStatements.map((s) => (
-              <li key={s.id}>
-                <Link
-                  href={`/dashboard/statements/${s.id}`}
-                  className="flex items-center justify-between gap-4 py-2.5 hover:bg-zinc-50"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-zinc-900">
-                      {s.period_start && s.period_end
-                        ? `${s.period_start} → ${s.period_end}`
-                        : s.source_filename}
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                      {s.source_filename} · {s.transaction_count} txns
-                    </p>
-                  </div>
-                  <span className="whitespace-nowrap text-sm tabular-nums text-zinc-700">
-                    {formatMoney(s.total_debits, s.currency)}
-                  </span>
-                </Link>
-              </li>
-            ))}
+            {sortedStatements.map((s) => {
+              const label =
+                s.period_start && s.period_end
+                  ? `${s.period_start} → ${s.period_end}`
+                  : s.source_filename;
+              return (
+                <li key={s.id} className="flex items-center gap-1">
+                  <Link
+                    href={`/dashboard/statements/${s.id}`}
+                    className="flex flex-1 items-center justify-between gap-4 py-2.5 hover:bg-zinc-50"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-zinc-900">{label}</p>
+                      <p className="text-xs text-zinc-500">
+                        {s.source_filename} · {s.transaction_count} txns
+                      </p>
+                    </div>
+                    <span className="whitespace-nowrap text-sm tabular-nums text-zinc-700">
+                      {formatMoney(s.total_debits, s.currency)}
+                    </span>
+                  </Link>
+                  <DeleteStatementIcon statementId={s.id} label={label} />
+                </li>
+              );
+            })}
           </ul>
+          <div className="mt-4 border-t border-zinc-100 pt-3 text-right">
+            <DeleteAllStatementsButton count={statements.length} />
+          </div>
         </section>
       </div>
     </main>

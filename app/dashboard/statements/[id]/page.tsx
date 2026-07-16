@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { getStatementById, getTransactionsByStatement } from "@/lib/sheets/repo";
+import {
+  getCategories,
+  getStatementById,
+  getTransactionsByStatement,
+} from "@/lib/sheets/repo";
 import {
   formatMoney,
   netByCategory,
+  statementLabel,
   topMerchants,
   totalMoneyIn,
   totalNetSpend,
@@ -12,7 +17,8 @@ import {
 import StatTiles, { Tile } from "@/components/dashboard/StatTiles";
 import StatementExplorer from "@/components/dashboard/StatementExplorer";
 import TopMerchants from "@/components/dashboard/TopMerchants";
-import TxnTable from "@/components/dashboard/TxnTable";
+import EditableTxnTable from "@/components/dashboard/EditableTxnTable";
+import { DeleteStatementButton } from "@/components/dashboard/DeleteButtons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Statement — Expense Visualizer" };
@@ -30,8 +36,12 @@ export default async function StatementPage({
   const statement = await getStatementById(userId, id);
   if (!statement) notFound();
 
-  const txns = await getTransactionsByStatement(userId, id);
-  const currency = statement.currency || txns[0]?.currency || "USD";
+  const [txns, categories] = await Promise.all([
+    getTransactionsByStatement(userId, id),
+    getCategories(userId),
+  ]);
+  const currency = statement.currency || txns[0]?.currency || "AUD";
+  const categoryNames = categories.map((c) => c.name);
 
   const breakdown = netByCategory(txns);
   const top = breakdown[0];
@@ -59,15 +69,24 @@ export default async function StatementPage({
       <Link href="/dashboard" className="text-sm text-zinc-500 hover:text-zinc-900">
         ← Dashboard
       </Link>
-      <h1 className="mt-2 text-2xl font-semibold">
-        {statement.period_start && statement.period_end
-          ? `${statement.period_start} → ${statement.period_end}`
-          : statement.source_filename}
-      </h1>
-      <p className="mt-1 text-sm text-zinc-500">
-        {statement.source_filename} · uploaded{" "}
-        {statement.uploaded_at.slice(0, 10)} · {currency}
-      </p>
+      <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">
+            {statement.period_start && statement.period_end
+              ? `${statement.period_start} → ${statement.period_end}`
+              : statement.source_filename}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            {statement.source_filename} · uploaded{" "}
+            {statement.uploaded_at.slice(0, 10)} · {currency}
+          </p>
+        </div>
+        <DeleteStatementButton
+          statementId={statement.id}
+          label={statementLabel(statement)}
+          redirectTo="/dashboard"
+        />
+      </div>
 
       <div className="mt-5">
         <StatTiles tiles={tiles} />
@@ -85,6 +104,7 @@ export default async function StatementPage({
             breakdown={breakdown}
             txns={txns}
             currency={currency}
+            categories={categoryNames}
           />
         </section>
 
@@ -100,7 +120,7 @@ export default async function StatementPage({
         <h2 className="mb-3 text-sm font-semibold text-zinc-900">
           All transactions ({txns.length})
         </h2>
-        <TxnTable txns={txns} />
+        <EditableTxnTable txns={txns} categories={categoryNames} />
       </section>
     </main>
   );

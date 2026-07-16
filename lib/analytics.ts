@@ -135,6 +135,66 @@ export function byStatement(txns: Txn[], statements: Statement[]): Period[] {
   return rollup(buckets).filter((p) => Object.keys(p.byCategory).length > 0);
 }
 
+/** Does a transaction fall inside a trend-chart bucket? */
+export function txnInPeriod(
+  t: Txn,
+  group: "statement" | "month",
+  periodKey: string,
+): boolean {
+  return group === "statement"
+    ? t.statement_id === periodKey
+    : t.date.startsWith(periodKey);
+}
+
+/** The #1 merchant (by net spend) inside each period bucket. */
+export function topMerchantPerPeriod(
+  txns: Txn[],
+  periods: Period[],
+  group: "statement" | "month",
+): Array<{ label: string; merchant: string; total: number }> {
+  const out: Array<{ label: string; merchant: string; total: number }> = [];
+  for (const p of periods) {
+    const map = new Map<string, number>();
+    for (const t of txns) {
+      if (!isExpenseCategory(t.category)) continue;
+      if (!txnInPeriod(t, group, p.key)) continue;
+      map.set(t.merchant, (map.get(t.merchant) ?? 0) + signed(t));
+    }
+    let best: { merchant: string; total: number } | null = null;
+    for (const [merchant, total] of map) {
+      if (!best || total > best.total) best = { merchant, total };
+    }
+    if (best && best.total > 0) {
+      out.push({ label: p.label, merchant: best.merchant, total: round2(best.total) });
+    }
+  }
+  return out;
+}
+
+/** The #1 merchant (by net spend) inside each expense category. */
+export function topMerchantPerCategory(
+  txns: Txn[],
+): Array<{ label: string; merchant: string; total: number }> {
+  const byCat = new Map<string, Map<string, number>>();
+  for (const t of txns) {
+    if (!isExpenseCategory(t.category)) continue;
+    const m = byCat.get(t.category) ?? new Map<string, number>();
+    m.set(t.merchant, (m.get(t.merchant) ?? 0) + signed(t));
+    byCat.set(t.category, m);
+  }
+  const out: Array<{ label: string; merchant: string; total: number }> = [];
+  for (const [category, merchants] of byCat) {
+    let best: { merchant: string; total: number } | null = null;
+    for (const [merchant, total] of merchants) {
+      if (!best || total > best.total) best = { merchant, total };
+    }
+    if (best && best.total > 0) {
+      out.push({ label: category, merchant: best.merchant, total: round2(best.total) });
+    }
+  }
+  return out.sort((a, b) => b.total - a.total);
+}
+
 /**
  * Merchant rollup within one category — powers the legend drill-down.
  * `total` is net of refunds; `orders` counts debit transactions (a refund is

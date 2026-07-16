@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Txn } from "@/lib/types";
 import { formatMoney } from "@/lib/analytics";
 import CategoryBreakdownChart from "./CategoryBreakdownChart";
-import TxnTable from "./TxnTable";
+import EditableTxnTable from "./EditableTxnTable";
 
 /**
  * Statement-page category breakdown with drill-down: click a category bar to
@@ -15,10 +15,12 @@ export default function StatementExplorer({
   breakdown,
   txns,
   currency,
+  categories,
 }: {
   breakdown: Array<{ category: string; total: number }>;
   txns: Txn[];
   currency: string;
+  categories: string[];
 }) {
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -76,7 +78,7 @@ export default function StatementExplorer({
             </button>
           </div>
           <div className="rounded-lg border border-zinc-200 bg-white p-2">
-            <TxnTable txns={drillTxns} />
+            <EditableTxnTable txns={drillTxns} categories={categories} />
           </div>
         </div>
       )}
