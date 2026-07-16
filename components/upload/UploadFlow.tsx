@@ -21,7 +21,7 @@ type Flow =
   | { step: "saved"; statementId: string };
 
 const CURRENCY_OPTIONS = [
-  "SGD", "USD", "PHP", "EUR", "GBP", "MYR", "JPY", "AUD", "HKD", "IDR", "INR",
+  "AUD", "NZD", "USD", "GBP", "EUR", "SGD", "PHP", "JPY", "HKD", "MYR", "IDR", "INR",
 ];
 
 export default function UploadFlow() {
@@ -313,7 +313,7 @@ export default function UploadFlow() {
               aria-label="Statement currency"
               className="rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs text-zinc-700 focus:border-zinc-900 focus:outline-none"
             >
-              {[...new Set([statement?.currency ?? "USD", ...CURRENCY_OPTIONS])].map(
+              {[...new Set([statement?.currency ?? "AUD", ...CURRENCY_OPTIONS])].map(
                 (c) => (
                   <option key={c} value={c}>
                     {c}

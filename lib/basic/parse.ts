@@ -117,9 +117,11 @@ function detectDayFirst(values: string[]): { dayFirst: boolean; certain: boolean
 // ---------------------------------------------------------------- amounts
 
 const CURRENCY_HINTS: Array<[RegExp, string]> = [
-  [/S\$|SGD/, "SGD"], [/₱|PHP/, "PHP"], [/RM|MYR/, "MYR"], [/£|GBP/, "GBP"],
-  [/€|EUR/, "EUR"], [/¥|JPY/, "JPY"], [/A\$|AUD/, "AUD"], [/HK\$|HKD/, "HKD"],
-  [/USD|US\$/, "USD"], [/IDR|Rp/, "IDR"], [/₹|INR/, "INR"], [/\$/, "USD"],
+  [/A\$|AUD/, "AUD"], [/NZ\$|NZD/, "NZD"], [/S\$|SGD/, "SGD"], [/HK\$|HKD/, "HKD"],
+  [/US\$|USD/, "USD"], [/₱|PHP/, "PHP"], [/RM|MYR/, "MYR"], [/£|GBP/, "GBP"],
+  [/€|EUR/, "EUR"], [/¥|JPY/, "JPY"], [/IDR|Rp/, "IDR"], [/₹|INR/, "INR"],
+  // Bare "$" is AUD for this app's (Australian) user base.
+  [/\$/, "AUD"],
 ];
 
 interface ParsedAmount {

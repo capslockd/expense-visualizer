@@ -27,6 +27,12 @@ created it. All data lives in your own Google Sheet — no database.
      to categorize by hand. If AI parsing fails because the Anthropic account
      has no credits, the app falls back to Basic automatically for CSV/Excel
      files. PDFs and images always need AI.
+   - **Tuned for Australia.** The keyword dictionary covers Australian
+     merchants (Woolworths, Coles, Bunnings, Opal/Myki, Linkt, AGL, Telstra,
+     Medibank, …) plus global brands; ambiguous dates are read as DD/MM, and
+     undetected currency defaults to AUD. Coles Express counts as fuel
+     (Transport), not groceries, and BPAY payments to a recognizable biller
+     get the biller's category.
 3. **Review** → amber rows need your decision; Save stays disabled until every
    transaction has a category. "Remember this merchant" (on by default) turns
    your choices into rules for next time.

@@ -1,22 +1,26 @@
 import { Category } from "@/lib/types";
 
-/** Short model-facing descriptions for the seeded categories. */
+/**
+ * Short model-facing descriptions for the seeded categories.
+ * Examples skew Australian — this app's user base is primarily in Australia,
+ * so expect Australian merchants, banks (DD/MM dates), and AUD statements.
+ */
 const CATEGORY_DESCRIPTIONS: Record<string, string> = {
-  Groceries: "supermarkets, wet markets, convenience stores for food staples (NTUC FairPrice, Coles, Walmart, 7-Eleven grocery runs)",
-  Dining: "restaurants, cafes, coffee, bars, food delivery (McDonald's, Starbucks, GrabFood, DoorDash)",
-  Transport: "ride-hailing, public transit, fuel, parking, tolls, taxis (Grab, Uber, EZ-Link, Shell)",
-  Utilities: "electricity, water, gas, internet, mobile phone bills (Singtel, AT&T, power companies)",
-  Entertainment: "movies, streaming for entertainment, games, concerts, hobbies (Netflix counts as Subscriptions if recurring; one-off cinema tickets go here)",
-  Shopping: "retail goods, clothing, electronics, online marketplaces (Amazon, Shopee, Uniqlo, IKEA)",
-  Health: "pharmacies, clinics, dental, hospitals, fitness, gyms (Guardian, Watsons, doctor visits)",
-  Travel: "flights, hotels, travel bookings, foreign-trip spending clearly tied to travel (Agoda, Airbnb, airlines)",
-  Subscriptions: "recurring digital services and memberships (Netflix, Spotify, iCloud, SaaS, news)",
-  Housing: "rent, mortgage payments, property maintenance, home services",
-  Insurance: "insurance premiums of any kind (life, health, car, home)",
-  Education: "tuition, courses, books, school fees, learning platforms",
-  "Fees & Charges": "bank fees, card annual fees, interest charges, late fees, FX/service charges levied by the bank itself",
-  "Income & Refunds": "incoming money that is NOT a refund of an identifiable purchase: salary, cashback credited, interest earned. (A refund of an identifiable purchase keeps the original purchase's category, with direction credit.)",
-  "Payments & Transfers": "payments made TO this account/card (e.g. 'PAYMENT RECEIVED - THANK YOU'), balance transfers, inter-account transfers. Not an expense.",
+  Groceries: "supermarkets, convenience stores, bottle shops (Woolworths, Coles, ALDI, IGA, 7-Eleven grocery runs, Dan Murphy's, BWS)",
+  Dining: "restaurants, cafes, coffee, pubs (food/drink), food delivery (McDonald's, Hungry Jack's, Guzman y Gomez, Boost Juice, Menulog, Uber Eats, DoorDash)",
+  Transport: "ride-hailing, public transport, fuel, parking, tolls, taxis (Uber, DiDi, Opal, Myki, Translink, Ampol, BP, Coles Express fuel, Linkt/CityLink tolls)",
+  Utilities: "electricity, gas, water, internet, mobile phone bills (AGL, Origin Energy, EnergyAustralia, Telstra, Optus, Vodafone, TPG, Aussie Broadband)",
+  Entertainment: "movies, games, concerts, hobbies (Event Cinemas, Hoyts, Ticketek, Steam; one-off cinema tickets here — recurring streaming is Subscriptions)",
+  Shopping: "retail goods, clothing, electronics, hardware, online marketplaces (Kmart, Big W, Target, JB Hi-Fi, Bunnings, Officeworks, Amazon, The Iconic, eBay)",
+  Health: "pharmacies, clinics, dental, hospitals, optometrists, fitness, gyms (Chemist Warehouse, Priceline, Specsavers, Anytime Fitness, Medicare gap payments)",
+  Travel: "flights, hotels, travel bookings, car hire, trip spending clearly tied to travel (Qantas, Jetstar, Virgin Australia, Webjet, Airbnb, Booking.com)",
+  Subscriptions: "recurring digital services and memberships (Netflix, Stan, Binge, Kayo, Spotify, iCloud, Foxtel, SaaS, news)",
+  Housing: "rent (often via real estate agents like Ray White, LJ Hooker), mortgage payments, strata/body corporate, council rates, home maintenance",
+  Insurance: "insurance premiums of any kind (NRMA, AAMI, Budget Direct, Medibank, Bupa, HCF, NIB, car/home/health/life)",
+  Education: "tuition, courses, books, school and TAFE fees, learning platforms",
+  "Fees & Charges": "bank fees, card annual fees, account-keeping fees, interest charges, late fees, international transaction fees levied by the bank itself",
+  "Income & Refunds": "incoming money that is NOT a refund of an identifiable purchase: salary, Centrelink payments, cashback credited, interest earned. (A refund of an identifiable purchase keeps the original purchase's category, with direction credit.)",
+  "Payments & Transfers": "payments made TO this account/card (e.g. 'PAYMENT RECEIVED - THANK YOU'), BPAY/Osko/PayID transfers between own accounts, balance transfers. Not an expense. (BPAY paying a biller like Origin Energy belongs to that biller's category instead.)",
 };
 
 export function buildSystemPrompt(

@@ -38,9 +38,9 @@ export function basicExtract(
   const warnings = [...parsed.warnings];
   let currency = parsed.currency;
   if (!currency) {
-    currency = "USD";
+    currency = "AUD";
     warnings.push(
-      "Couldn't detect the statement currency — defaulted to USD. Fix it with the currency selector above the table if that's wrong.",
+      "Couldn't detect the statement currency — defaulted to AUD. Fix it with the currency selector above the table if that's wrong.",
     );
   }
 
