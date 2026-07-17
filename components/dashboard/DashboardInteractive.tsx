@@ -47,6 +47,8 @@ export default function DashboardInteractive({
   const [drillPeriodKey, setDrillPeriodKey] = useState<string | null>(null);
   const [pieKey, setPieKey] = useState<string | null>(null);
   const [chartType, setChartType] = useState<"bars" | "pie">("bars");
+  // Pie scope: null = aggregate every visible period; else one period key.
+  const [piePeriodKey, setPiePeriodKey] = useState<string | null>(null);
   // null = every category; otherwise the filtered set.
   const [filter, setFilter] = useState<Set<string> | null>(null);
 
@@ -227,6 +229,20 @@ export default function DashboardInteractive({
 
   const piePeriod = pieKey ? (periods.find((p) => p.key === pieKey) ?? null) : null;
 
+  // Pie scope: the chosen period, or the whole visible window.
+  const pieSelected = piePeriodKey
+    ? (periods.find((p) => p.key === piePeriodKey) ?? null)
+    : null;
+  const piePeriods = pieSelected ? [pieSelected] : periods;
+
+  function cyclePie(direction: 1 | -1) {
+    // Order: All → first … last → All (wraps both ways).
+    const keys: Array<string | null> = [null, ...periods.map((p) => p.key)];
+    const idx = keys.findIndex((k) => k === (pieSelected ? pieSelected.key : null));
+    const next = keys[(idx + direction + keys.length) % keys.length];
+    setPiePeriodKey(next);
+  }
+
   return (
     <div>
       <StatTiles tiles={tiles} />
@@ -348,18 +364,61 @@ export default function DashboardInteractive({
             budgetTotal={budgetTotal}
           />
         ) : (
-          <CategoryPie
-            periods={periods}
-            rankedCategories={rankedCategories}
-            visibleCategories={visibleCategories}
-            currency={currency}
-            selectedCategory={drillCategory}
-            onSelectCategory={(c) => {
-              setDrillCategory((prev) => (prev === c ? null : c));
-              setDrillPeriodKey(null); // pie aggregates the window → drill all periods
-            }}
-            budgetTotal={budgetTotal}
-          />
+          <>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-xs text-zinc-500">
+                Show {periodNoun}:
+                <select
+                  value={pieSelected?.key ?? "__all__"}
+                  onChange={(e) =>
+                    setPiePeriodKey(e.target.value === "__all__" ? null : e.target.value)
+                  }
+                  aria-label={`Pie ${periodNoun}`}
+                  className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-800 focus:border-zinc-900 focus:outline-none"
+                >
+                  <option value="__all__">
+                    All {periods.length} {periodNoun}s (aggregate)
+                  </option>
+                  {periods.map((p) => (
+                    <option key={p.key} value={p.key}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => cyclePie(-1)}
+                  aria-label={`Previous ${periodNoun}`}
+                  className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cyclePie(1)}
+                  aria-label={`Next ${periodNoun}`}
+                  className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
+                >
+                  ›
+                </button>
+              </div>
+            </div>
+            <CategoryPie
+              periods={piePeriods}
+              rankedCategories={rankedCategories}
+              visibleCategories={visibleCategories}
+              currency={currency}
+              selectedCategory={drillCategory}
+              onSelectCategory={(c) => {
+                setDrillCategory((prev) => (prev === c ? null : c));
+                // Drill matches the pie's scope: one period, or all of them.
+                setDrillPeriodKey(pieSelected?.key ?? null);
+              }}
+              budgetTotal={budgetTotal}
+            />
+          </>
         )}
 
         {drillCategory && (
