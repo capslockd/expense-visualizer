@@ -15,6 +15,7 @@ export const TABS: Record<string, string[]> = {
     "total_credits",
     "transaction_count",
     "content_hash",
+    "title",
   ],
   Transactions: [
     "id",
@@ -72,7 +73,8 @@ async function doSetup(): Promise<void> {
     });
   }
 
-  // Write header rows where A1 is empty.
+  // Write header rows where A1 is empty; extend headers when the schema has
+  // grown (new columns are always appended, so rewriting row 1 is safe).
   const headerCheck = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
     ranges: Object.keys(TABS).map((t) => `${t}!1:1`),
@@ -80,7 +82,7 @@ async function doSetup(): Promise<void> {
   const updates: { range: string; values: string[][] }[] = [];
   Object.keys(TABS).forEach((tab, i) => {
     const row = headerCheck.data.valueRanges?.[i]?.values?.[0];
-    if (!row || row.length === 0) {
+    if (!row || row.length === 0 || row.length < TABS[tab].length) {
       updates.push({ range: `${tab}!A1`, values: [TABS[tab]] });
     }
   });

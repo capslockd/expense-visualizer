@@ -21,6 +21,7 @@ const SaveSchema = z.object({
     currency: z.string().min(1),
     source_filename: z.string().min(1),
     content_hash: z.string().min(1),
+    title: z.string().trim().max(80).optional(),
   }),
   transactions: z
     .array(
@@ -130,6 +131,7 @@ export async function POST(req: Request) {
       source_filename: statement.source_filename,
       currency: statement.currency,
       content_hash: statement.content_hash,
+      title: statement.title ?? "",
     },
     transactions: transactions.map((t) => ({
       date: t.date,

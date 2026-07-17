@@ -23,6 +23,8 @@ export interface Statement {
   total_credits: number;
   transaction_count: number;
   content_hash: string;
+  /** Optional user-given friendly name, e.g. "July NAB card". */
+  title: string;
 }
 
 export interface Txn {

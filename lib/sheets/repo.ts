@@ -278,6 +278,7 @@ function toStatement(cells: Record<string, Cell>): Statement {
     total_credits: asNumber(cells.total_credits),
     transaction_count: asNumber(cells.transaction_count),
     content_hash: asString(cells.content_hash),
+    title: asString(cells.title),
   };
 }
 
@@ -445,6 +446,7 @@ export async function saveStatement(input: {
     source_filename: string;
     currency: string;
     content_hash: string;
+    title: string;
   };
   transactions: Array<{
     date: string;
@@ -505,6 +507,7 @@ export async function saveStatement(input: {
       Math.round(totalCredits * 100) / 100,
       transactions.length,
       statement.content_hash,
+      statement.title,
     ],
   ]);
 

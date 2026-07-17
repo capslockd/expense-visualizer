@@ -72,11 +72,15 @@ export default async function StatementPage({
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">
-            {statement.period_start && statement.period_end
-              ? `${statement.period_start} → ${statement.period_end}`
-              : statement.source_filename}
+            {statement.title ||
+              (statement.period_start && statement.period_end
+                ? `${statement.period_start} → ${statement.period_end}`
+                : statement.source_filename)}
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
+            {statement.title && statement.period_start && statement.period_end
+              ? `${statement.period_start} → ${statement.period_end} · `
+              : ""}
             {statement.source_filename} · uploaded{" "}
             {statement.uploaded_at.slice(0, 10)} · {currency}
           </p>

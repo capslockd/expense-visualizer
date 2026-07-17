@@ -5,6 +5,7 @@ import { getCategories, getStatements, getTransactions } from "@/lib/sheets/repo
 import {
   byMonth,
   byStatement,
+  cumulativeSpend,
   currenciesOf,
   formatMoney,
   monthLabel,
@@ -13,6 +14,7 @@ import {
   topMerchantPerPeriod,
   totalMoneyIn,
 } from "@/lib/analytics";
+import SpendingPaceChart from "@/components/dashboard/SpendingPaceChart";
 import StatTiles, { Tile } from "@/components/dashboard/StatTiles";
 import TrendExplorer from "@/components/dashboard/TrendExplorer";
 import BudgetVsActual from "@/components/dashboard/BudgetVsActual";
@@ -225,17 +227,46 @@ export default async function DashboardPage({
         />
       </section>
 
+      {latest && (
+        <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
+          <h2 className="text-sm font-semibold text-zinc-900">Spending pace</h2>
+          <p className="mb-4 text-xs text-zinc-500">
+            Cumulative net spend through the {periodNoun}, day by day —{" "}
+            <span style={{ color: "#2a78d6" }} className="font-medium">
+              {latest.label}
+            </span>
+            {previous ? (
+              <>
+                {" "}
+                vs <span className="text-zinc-400">{previous.label}</span>
+              </>
+            ) : null}
+          </p>
+          <SpendingPaceChart
+            current={cumulativeSpend(txns, group, latest.key)}
+            previous={previous ? cumulativeSpend(txns, group, previous.key) : []}
+            currentLabel={latest.label}
+            previousLabel={previous?.label ?? null}
+            currency={currency}
+          />
+        </section>
+      )}
+
       <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
         <h2 className="text-sm font-semibold text-zinc-900">Top merchant</h2>
         <p className="mb-4 text-xs text-zinc-500">
           The single biggest merchant (net of refunds) inside each{" "}
-          {group === "statement" ? "statement" : "month"} and each category
+          {group === "statement" ? "statement" : "month"} and each category —
+          click a bar to see the transactions behind it
         </p>
         <TopMerchantViz
           perPeriod={topMerchantPerPeriod(txns, periods, group)}
           perCategory={topMerchantPerCategory(txns)}
           periodNoun={group === "statement" ? "statement" : "month"}
           currency={currency}
+          txns={txns}
+          categories={categories.map((c) => c.name)}
+          group={group}
         />
       </section>
 
@@ -258,10 +289,11 @@ export default async function DashboardPage({
           <h2 className="text-sm font-semibold text-zinc-900">Statements</h2>
           <ul className="mt-3 divide-y divide-zinc-100">
             {sortedStatements.map((s) => {
-              const label =
+              const dates =
                 s.period_start && s.period_end
                   ? `${s.period_start} → ${s.period_end}`
-                  : s.source_filename;
+                  : null;
+              const label = s.title || dates || s.source_filename;
               return (
                 <li key={s.id} className="flex items-center gap-1">
                   <Link
@@ -271,7 +303,8 @@ export default async function DashboardPage({
                     <div>
                       <p className="text-sm font-medium text-zinc-900">{label}</p>
                       <p className="text-xs text-zinc-500">
-                        {s.source_filename} · {s.transaction_count} txns
+                        {s.title && dates ? `${dates} · ` : ""}
+                        {s.transaction_count} txns
                       </p>
                     </div>
                     <span className="whitespace-nowrap text-sm tabular-nums text-zinc-700">

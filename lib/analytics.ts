@@ -146,13 +146,21 @@ export function txnInPeriod(
     : t.date.startsWith(periodKey);
 }
 
+export interface TopMerchantEntry {
+  /** Scope key: the period key (per-period rows) or category name. */
+  key: string;
+  label: string;
+  merchant: string;
+  total: number; // net of refunds
+}
+
 /** The #1 merchant (by net spend) inside each period bucket. */
 export function topMerchantPerPeriod(
   txns: Txn[],
   periods: Period[],
   group: "statement" | "month",
-): Array<{ label: string; merchant: string; total: number }> {
-  const out: Array<{ label: string; merchant: string; total: number }> = [];
+): TopMerchantEntry[] {
+  const out: TopMerchantEntry[] = [];
   for (const p of periods) {
     const map = new Map<string, number>();
     for (const t of txns) {
@@ -165,16 +173,14 @@ export function topMerchantPerPeriod(
       if (!best || total > best.total) best = { merchant, total };
     }
     if (best && best.total > 0) {
-      out.push({ label: p.label, merchant: best.merchant, total: round2(best.total) });
+      out.push({ key: p.key, label: p.label, merchant: best.merchant, total: round2(best.total) });
     }
   }
   return out;
 }
 
 /** The #1 merchant (by net spend) inside each expense category. */
-export function topMerchantPerCategory(
-  txns: Txn[],
-): Array<{ label: string; merchant: string; total: number }> {
+export function topMerchantPerCategory(txns: Txn[]): TopMerchantEntry[] {
   const byCat = new Map<string, Map<string, number>>();
   for (const t of txns) {
     if (!isExpenseCategory(t.category)) continue;
@@ -182,17 +188,50 @@ export function topMerchantPerCategory(
     m.set(t.merchant, (m.get(t.merchant) ?? 0) + signed(t));
     byCat.set(t.category, m);
   }
-  const out: Array<{ label: string; merchant: string; total: number }> = [];
+  const out: TopMerchantEntry[] = [];
   for (const [category, merchants] of byCat) {
     let best: { merchant: string; total: number } | null = null;
     for (const [merchant, total] of merchants) {
       if (!best || total > best.total) best = { merchant, total };
     }
     if (best && best.total > 0) {
-      out.push({ label: category, merchant: best.merchant, total: round2(best.total) });
+      out.push({ key: category, label: category, merchant: best.merchant, total: round2(best.total) });
     }
   }
   return out.sort((a, b) => b.total - a.total);
+}
+
+/**
+ * Cumulative spend through a period, day by day — powers the pace chart.
+ * Day index is 1-based position within the period so two cycles align.
+ */
+export function cumulativeSpend(
+  txns: Txn[],
+  group: "statement" | "month",
+  periodKey: string,
+): Array<{ day: number; cum: number }> {
+  const inPeriod = txns
+    .filter((t) => isExpenseCategory(t.category) && txnInPeriod(t, group, periodKey))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (inPeriod.length === 0) return [];
+  const firstDate = inPeriod[0].date;
+  const dayOf = (iso: string) =>
+    Math.floor(
+      (new Date(iso).getTime() - new Date(firstDate).getTime()) / 86_400_000,
+    ) + 1;
+  const byDay = new Map<number, number>();
+  for (const t of inPeriod) {
+    const d = dayOf(t.date);
+    byDay.set(d, (byDay.get(d) ?? 0) + signed(t));
+  }
+  const days = [...byDay.keys()].sort((a, b) => a - b);
+  const out: Array<{ day: number; cum: number }> = [];
+  let cum = 0;
+  for (const d of days) {
+    cum += byDay.get(d) ?? 0;
+    out.push({ day: d, cum: round2(cum) });
+  }
+  return out;
 }
 
 /**
@@ -259,8 +298,12 @@ function shortDate(iso: string, withYear = false): string {
   });
 }
 
-/** Chart label for a statement column, e.g. "15 Jun – 16 Jul 26". */
+/**
+ * Chart label for a statement column — the friendly name when set, else the
+ * period dates (dates stay visible in tooltips/subtitles regardless).
+ */
 export function statementLabel(s: Statement): string {
+  if (s.title) return s.title;
   if (s.period_start && s.period_end) {
     return `${shortDate(s.period_start)} – ${shortDate(s.period_end, true)}`;
   }

@@ -28,6 +28,7 @@ export default function UploadFlow() {
   const [flow, setFlow] = useState<Flow>({ step: "idle" });
   const [parser, setParser] = useState<"ai" | "basic">("ai");
   const [error, setError] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
   const [statement, setStatement] = useState<ExtractedStatement | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [rows, setRows] = useState<ReviewRow[]>([]);
@@ -42,6 +43,7 @@ export default function UploadFlow() {
   function reset() {
     setFlow({ step: "idle" });
     setError(null);
+    setTitle("");
     setStatement(null);
     setWarnings([]);
     setRows([]);
@@ -143,6 +145,7 @@ export default function UploadFlow() {
             currency: statement.currency,
             source_filename: statement.source_filename,
             content_hash: statement.content_hash,
+            title: title.trim(),
           },
           transactions: rows.map((r) => ({
             tempId: r.tempId,
@@ -299,10 +302,17 @@ export default function UploadFlow() {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold">
-            {statement?.source_filename}
-          </h2>
-          <p className="flex items-center gap-1.5 text-sm text-zinc-500">
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={80}
+            placeholder={`Name this statement… (e.g. "July NAB card")`}
+            aria-label="Statement name (optional)"
+            className="w-full max-w-md rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-lg font-semibold text-zinc-900 placeholder:font-normal placeholder:text-zinc-400 hover:border-zinc-200 focus:border-zinc-900 focus:bg-white focus:outline-none"
+          />
+          <p className="flex items-center gap-1.5 px-1 text-sm text-zinc-500">
+            <span className="text-zinc-400">{statement?.source_filename} ·</span>
             {statement?.period_start && statement?.period_end
               ? `${statement.period_start} → ${statement.period_end} · `
               : ""}
