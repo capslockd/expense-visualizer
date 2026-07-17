@@ -5,6 +5,7 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -32,6 +33,8 @@ export default function TrendChart({
   onSelectCategory,
   focusPeriodKey,
   onSelectPeriodLabel,
+  visibleCategories,
+  budgetTotal,
 }: {
   periods: Period[];
   rankedCategories: string[];
@@ -42,6 +45,10 @@ export default function TrendChart({
   focusPeriodKey?: string | null;
   /** Clicking a period label (x-axis tick) — used to open the pie breakdown. */
   onSelectPeriodLabel?: (periodKey: string) => void;
+  /** null = show every category; otherwise only these are stacked. */
+  visibleCategories?: string[] | null;
+  /** Aggregate budget for the visible categories — drawn as a red line. */
+  budgetTotal?: number | null;
 }) {
   if (periods.length === 0) {
     return (
@@ -52,19 +59,28 @@ export default function TrendChart({
   }
 
   const slots = assignSlots(rankedCategories);
-  const topCategories = rankedCategories.slice(0, chart.slots.length);
-  const hasFold = rankedCategories.length > topCategories.length;
+  const visible = visibleCategories ? new Set(visibleCategories) : null;
+  const isVisible = (cat: string) => visible === null || visible.has(cat);
+  const shownRanked = rankedCategories.filter(isVisible);
+  const topCategories = rankedCategories
+    .slice(0, chart.slots.length)
+    .filter(isVisible);
+  const hasFold = shownRanked.length > topCategories.length;
 
   const rows = periods.map((p) => {
+    const actual: Record<string, number> = {};
     const row: Record<string, unknown> = {
       label: p.label,
       __key: p.key,
-      __total: p.total,
-      __actual: p.byCategory,
+      __actual: actual,
     };
+    let total = 0;
     let other = 0;
     let otherActual = 0;
     for (const [cat, net] of Object.entries(p.byCategory)) {
+      if (!isVisible(cat)) continue;
+      total += Math.max(net, 0);
+      actual[cat] = net;
       if (slots.has(cat)) {
         row[cat] = Math.max(net, 0);
       } else {
@@ -74,11 +90,9 @@ export default function TrendChart({
     }
     if (hasFold) {
       row[OTHER_KEY] = Math.round(other * 100) / 100;
-      (row.__actual as Record<string, number>) = {
-        ...p.byCategory,
-        [OTHER_KEY]: Math.round(otherActual * 100) / 100,
-      };
+      actual[OTHER_KEY] = Math.round(otherActual * 100) / 100;
     }
+    row.__total = Math.round(total * 100) / 100;
     return row;
   });
 
@@ -207,6 +221,20 @@ export default function TrendChart({
             </span>
           )}
         />
+        {budgetTotal != null && budgetTotal > 0 && (
+          <ReferenceLine
+            y={budgetTotal}
+            stroke={chart.critical}
+            strokeDasharray="6 4"
+            strokeWidth={1.5}
+            label={{
+              value: `Budget ${formatMoney(budgetTotal, currency)}`,
+              position: "insideTopRight",
+              fill: chart.critical,
+              fontSize: 10,
+            }}
+          />
+        )}
         {seriesKeys.map((key, i) => (
           <Bar
             key={key}

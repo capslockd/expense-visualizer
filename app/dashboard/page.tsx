@@ -15,7 +15,7 @@ import {
 } from "@/lib/analytics";
 import DashboardInteractive from "@/components/dashboard/DashboardInteractive";
 import PaceExplorer from "@/components/dashboard/PaceExplorer";
-import BudgetVsActual from "@/components/dashboard/BudgetVsActual";
+import BudgetPanel from "@/components/dashboard/BudgetPanel";
 import TopMerchantViz from "@/components/dashboard/TopMerchantViz";
 import {
   DeleteAllStatementsButton,
@@ -27,7 +27,7 @@ export const metadata = { title: "Dashboard — Expense Visualizer" };
 
 /** Hard ceiling on chart columns rendered at once. */
 const MAX_PERIODS = 24;
-const SHOW_OPTIONS = [6, 12, 24] as const;
+const SHOW_OPTIONS = [1, 3, 6, 12, 24] as const;
 
 export default async function DashboardPage({
   searchParams,
@@ -96,19 +96,24 @@ export default async function DashboardPage({
 
   const periodNoun = group === "statement" ? "statement" : "month";
 
-  // Budgets are monthly by definition — always calendar months, full history.
+  // Per-cycle budgets (used by the red budget line and the budget panel).
+  const budgets: Record<string, number> = {};
+  for (const c of categories) {
+    if ((c.monthly_budget ?? 0) > 0) budgets[c.name] = c.monthly_budget as number;
+  }
+  const budgetTotal =
+    Math.round(Object.values(budgets).reduce((s, v) => s + v, 0) * 100) / 100;
+
+  // Pace gets both cuts regardless of the page grouping (statements usually
+  // run mid-month → mid-month, so both levels are useful side by side).
+  const statementPeriodsAll = group === "statement" ? allPeriods : byStatement(currencyTxns, statements);
+  const monthPeriodsAll = group === "month" ? allPeriods : byMonth(currencyTxns);
+  const statementPeriods = statementPeriodsAll.slice(-Math.min(show, MAX_PERIODS));
+  const monthPeriods = monthPeriodsAll.slice(-Math.min(show, MAX_PERIODS));
+
+  // The budget panel compares against the latest calendar month.
   const monthly = byMonth(currencyTxns);
   const latestMonth = monthly[monthly.length - 1];
-  const budgetRows = latestMonth
-    ? categories
-        .filter((c) => (c.monthly_budget ?? 0) > 0)
-        .map((c) => ({
-          category: c.name,
-          budget: c.monthly_budget as number,
-          actual: Math.max(latestMonth.byCategory[c.name] ?? 0, 0),
-        }))
-        .sort((a, b) => b.actual / b.budget - a.actual / a.budget)
-    : [];
   const latestMonthName = latestMonth ? monthLabel(latestMonth.key) : "";
 
   const sortedStatements = [...statements].sort((a, b) =>
@@ -198,6 +203,7 @@ export default async function DashboardPage({
           txns={txns}
           currency={currency}
           group={group}
+          budgets={budgets}
         />
       </div>
 
@@ -207,10 +213,12 @@ export default async function DashboardPage({
             Spending pace
           </h2>
           <PaceExplorer
-            periods={periods}
-            txns={txns}
+            statementPeriods={statementPeriods}
+            monthPeriods={monthPeriods}
+            txns={currencyTxns}
             currency={currency}
-            group={group}
+            defaultLevel={group}
+            budgetTotal={budgetTotal > 0 ? budgetTotal : null}
           />
         </section>
       )}
@@ -236,11 +244,17 @@ export default async function DashboardPage({
         <section className="rounded-xl border border-zinc-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-zinc-900">
             Budget vs actual{latestMonthName ? ` · ${latestMonthName}` : ""}
-            <span className="ml-1 font-normal text-zinc-400">(budgets are monthly)</span>
+            <span className="ml-1 font-normal text-zinc-400">
+              (per cycle — month or statement)
+            </span>
           </h2>
           <div className="mt-4">
-            <BudgetVsActual
-              rows={budgetRows}
+            <BudgetPanel
+              categories={categories.map((c) => ({
+                name: c.name,
+                monthly_budget: c.monthly_budget,
+              }))}
+              actualByCategory={latestMonth?.byCategory ?? {}}
               currency={currency}
               monthName={latestMonthName}
             />

@@ -4,6 +4,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,9 +29,12 @@ export interface PaceSeries {
 export default function SpendingPaceChart({
   series,
   currency,
+  budgetTotal,
 }: {
   series: PaceSeries[];
   currency: string;
+  /** Aggregate per-cycle budget — drawn as a red target line. */
+  budgetTotal?: number | null;
 }) {
   const drawable = series.filter((s) => s.points.length > 0);
   if (drawable.length === 0) {
@@ -132,6 +136,20 @@ export default function SpendingPaceChart({
             );
           }}
         />
+        {budgetTotal != null && budgetTotal > 0 && (
+          <ReferenceLine
+            y={budgetTotal}
+            stroke="#d03b3b"
+            strokeDasharray="6 4"
+            strokeWidth={1.5}
+            label={{
+              value: `Budget ${formatMoney(budgetTotal, currency)}`,
+              position: "insideTopRight",
+              fill: "#d03b3b",
+              fontSize: 10,
+            }}
+          />
+        )}
         {/* Muted lines first so the accent draws on top. */}
         {[...drawable]
           .sort((a, b) => (a.variant === "accent" ? 1 : 0) - (b.variant === "accent" ? 1 : 0))

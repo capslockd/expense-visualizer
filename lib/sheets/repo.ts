@@ -236,6 +236,28 @@ export async function addCategory(userId: string, name: string): Promise<void> {
   await appendRows("Categories", [[userId, name, "", new Date().toISOString()]]);
 }
 
+/** Set (or clear) a category's per-cycle budget. */
+export async function updateCategoryBudget(
+  userId: string,
+  name: string,
+  budget: number | null,
+): Promise<boolean> {
+  const rows = await readTab("Categories");
+  const hit = rows.find(
+    (r) =>
+      asString(r.cells.user_id) === userId &&
+      asString(r.cells.name).toLowerCase() === name.toLowerCase(),
+  );
+  if (!hit) return false;
+  await getSheets().spreadsheets.values.update({
+    spreadsheetId: getSpreadsheetId(),
+    range: `Categories!C${hit.rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[budget === null ? "" : budget]] },
+  });
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Category rules (per user, append-only, last row wins)
 // ---------------------------------------------------------------------------

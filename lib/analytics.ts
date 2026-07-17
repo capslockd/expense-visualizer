@@ -364,6 +364,13 @@ export function periodDaySpan(
 
 export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
+/** Weekday short name for an ISO date, e.g. "2026-07-17" → "Fri". */
+export function weekdayOf(dateIso: string): (typeof WEEKDAYS)[number] | "" {
+  const parsed = new Date(`${dateIso}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return WEEKDAYS[(parsed.getUTCDay() + 6) % 7];
+}
+
 /** Net spend per day of week (Mon-first), for "which weekday costs the most?". */
 export function byWeekday(
   txns: Txn[],

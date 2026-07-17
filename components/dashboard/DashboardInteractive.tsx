@@ -15,6 +15,7 @@ import {
 import { chart, assignSlots } from "./chartTheme";
 import StatTiles, { Tile } from "./StatTiles";
 import TrendChart, { OTHER_KEY } from "./TrendChart";
+import CategoryPie from "./CategoryPie";
 import CategoryOrdersChart from "./CategoryOrdersChart";
 import StatementPieModal from "./StatementPieModal";
 
@@ -30,18 +31,47 @@ export default function DashboardInteractive({
   txns,
   currency,
   group,
+  budgets,
 }: {
   periods: Period[];
   rankedCategories: string[];
   txns: Txn[];
   currency: string;
   group: "statement" | "month";
+  /** Per-cycle budget per category (only categories with a budget set). */
+  budgets: Record<string, number>;
 }) {
   const periodNoun = group === "statement" ? "statement" : "month";
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
   const [drillPeriodKey, setDrillPeriodKey] = useState<string | null>(null);
   const [pieKey, setPieKey] = useState<string | null>(null);
+  const [chartType, setChartType] = useState<"bars" | "pie">("bars");
+  // null = every category; otherwise the filtered set.
+  const [filter, setFilter] = useState<Set<string> | null>(null);
+
+  const visibleCategories = useMemo(
+    () => (filter ? rankedCategories.filter((c) => filter.has(c)) : null),
+    [filter, rankedCategories],
+  );
+  const budgetTotal = useMemo(() => {
+    const cats = visibleCategories ?? rankedCategories;
+    const sum = cats.reduce((s, c) => s + (budgets[c] ?? 0), 0);
+    return Math.round(sum * 100) / 100;
+  }, [visibleCategories, rankedCategories, budgets]);
+
+  function toggleFilter(category: string) {
+    setFilter((prev) => {
+      const next = new Set(prev ?? []);
+      if (prev === null) {
+        // From "all" → isolate the clicked category.
+        return new Set([category]);
+      }
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next.size === 0 || next.size === rankedCategories.length ? null : next;
+    });
+  }
 
   const focusIdx = useMemo(() => {
     const idx = periods.findIndex((p) => p.key === focusKey);
@@ -224,28 +254,113 @@ export default function DashboardInteractive({
       </p>
 
       <section className="mt-4 rounded-xl border border-zinc-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-zinc-900">
-          Spend by category ·{" "}
-          {group === "statement" ? "per statement (billing cycle)" : "per calendar month"}
-        </h2>
-        <p className="mb-4 text-xs text-zinc-500">
-          Net of refunds · excludes card payments and transfers · {currency} ·
-          click a legend entry to drill into merchants · click a{" "}
-          <span className="underline decoration-dotted">{periodNoun} label</span>{" "}
-          for its pie breakdown
-        </p>
-        <TrendChart
-          periods={periods}
-          rankedCategories={rankedCategories}
-          currency={currency}
-          selectedCategory={drillCategory}
-          onSelectCategory={handleSelectCategory}
-          focusPeriodKey={focus?.key ?? null}
-          onSelectPeriodLabel={(key) => {
-            setFocusKey(key);
-            setPieKey(key);
-          }}
-        />
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900">
+              Spend by category ·{" "}
+              {group === "statement" ? "per statement (billing cycle)" : "per calendar month"}
+            </h2>
+            <p className="mb-2 text-xs text-zinc-500">
+              Net of refunds · excludes card payments and transfers · {currency}
+              {chartType === "bars" ? (
+                <>
+                  {" "}
+                  · click a{" "}
+                  <span className="underline decoration-dotted">{periodNoun} label</span>{" "}
+                  for its pie breakdown
+                </>
+              ) : (
+                <> · shares aggregated over the visible window — narrow to 1 for a single {periodNoun}</>
+              )}
+            </p>
+          </div>
+          <div className="flex w-fit items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1 text-sm">
+            {(
+              [
+                ["bars", "Bars"],
+                ["pie", "Pie"],
+              ] as const
+            ).map(([t, label]) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setChartType(t)}
+                className={`rounded-md px-3 py-1 ${
+                  chartType === t
+                    ? "bg-white font-medium text-zinc-900 shadow-sm"
+                    : "text-zinc-600 hover:text-zinc-900"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-zinc-500">Categories:</span>
+          <button
+            type="button"
+            onClick={() => setFilter(null)}
+            className={`rounded-full border px-2.5 py-0.5 text-xs ${
+              filter === null
+                ? "border-zinc-900 bg-zinc-900 font-medium text-white"
+                : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"
+            }`}
+          >
+            All
+          </button>
+          {rankedCategories.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => toggleFilter(c)}
+              className={`rounded-full border px-2.5 py-0.5 text-xs ${
+                filter?.has(c)
+                  ? "border-zinc-900 bg-zinc-900 font-medium text-white"
+                  : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"
+              }`}
+            >
+              {c}
+              {budgets[c] ? (
+                <span className={filter?.has(c) ? "text-zinc-300" : "text-zinc-400"}>
+                  {" "}
+                  · {formatMoney(budgets[c], currency)}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+
+        {chartType === "bars" ? (
+          <TrendChart
+            periods={periods}
+            rankedCategories={rankedCategories}
+            currency={currency}
+            selectedCategory={drillCategory}
+            onSelectCategory={handleSelectCategory}
+            focusPeriodKey={focus?.key ?? null}
+            onSelectPeriodLabel={(key) => {
+              setFocusKey(key);
+              setPieKey(key);
+            }}
+            visibleCategories={visibleCategories}
+            budgetTotal={budgetTotal}
+          />
+        ) : (
+          <CategoryPie
+            periods={periods}
+            rankedCategories={rankedCategories}
+            visibleCategories={visibleCategories}
+            currency={currency}
+            selectedCategory={drillCategory}
+            onSelectCategory={(c) => {
+              setDrillCategory((prev) => (prev === c ? null : c));
+              setDrillPeriodKey(null); // pie aggregates the window → drill all periods
+            }}
+            budgetTotal={budgetTotal}
+          />
+        )}
 
         {drillCategory && (
           <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4">
