@@ -30,12 +30,18 @@ export default function TrendChart({
   currency,
   selectedCategory,
   onSelectCategory,
+  focusPeriodKey,
+  onSelectPeriodLabel,
 }: {
   periods: Period[];
   rankedCategories: string[];
   currency: string;
   selectedCategory: string | null;
   onSelectCategory: (category: string, periodKey?: string) => void;
+  /** Focused period's tick renders bold. */
+  focusPeriodKey?: string | null;
+  /** Clicking a period label (x-axis tick) — used to open the pie breakdown. */
+  onSelectPeriodLabel?: (periodKey: string) => void;
 }) {
   if (periods.length === 0) {
     return (
@@ -79,6 +85,7 @@ export default function TrendChart({
   const seriesKeys = hasFold ? [...topCategories, OTHER_KEY] : topCategories;
   const colorOf = (key: string) =>
     key === OTHER_KEY ? chart.fold : (slots.get(key) ?? chart.fold);
+  const labelToKey = new Map(periods.map((p) => [p.label, p.key]));
 
   return (
     <ResponsiveContainer width="100%" height={320}>
@@ -88,8 +95,33 @@ export default function TrendChart({
           dataKey="label"
           tickLine={false}
           axisLine={{ stroke: chart.baseline }}
-          tick={{ fill: chart.inkMuted, fontSize: 11 }}
           interval="preserveStartEnd"
+          tick={(props) => {
+            const { x, y, payload } = props as {
+              x: number; y: number; payload: { value: string };
+            };
+            const key = labelToKey.get(payload.value);
+            const isFocus = key !== undefined && key === focusPeriodKey;
+            return (
+              <text
+                x={x}
+                y={y + 12}
+                textAnchor="middle"
+                style={{
+                  fill: isFocus ? chart.ink : chart.inkMuted,
+                  fontSize: 11,
+                  fontWeight: isFocus ? 700 : 400,
+                  cursor: onSelectPeriodLabel ? "pointer" : "default",
+                  textDecoration: onSelectPeriodLabel ? "underline dotted" : "none",
+                }}
+                onClick={() => {
+                  if (key !== undefined && onSelectPeriodLabel) onSelectPeriodLabel(key);
+                }}
+              >
+                {payload.value}
+              </text>
+            );
+          }}
         />
         <YAxis
           tickLine={false}

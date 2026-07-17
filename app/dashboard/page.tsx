@@ -11,11 +11,10 @@ import {
   netByCategory,
   topMerchantPerCategory,
   topMerchantPerPeriod,
-  totalMoneyIn,
+  txnInPeriod,
 } from "@/lib/analytics";
+import DashboardInteractive from "@/components/dashboard/DashboardInteractive";
 import PaceExplorer from "@/components/dashboard/PaceExplorer";
-import StatTiles, { Tile } from "@/components/dashboard/StatTiles";
-import TrendExplorer from "@/components/dashboard/TrendExplorer";
 import BudgetVsActual from "@/components/dashboard/BudgetVsActual";
 import TopMerchantViz from "@/components/dashboard/TopMerchantViz";
 import {
@@ -25,6 +24,10 @@ import {
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard — Expense Visualizer" };
+
+/** Hard ceiling on chart columns rendered at once. */
+const MAX_PERIODS = 24;
+const SHOW_OPTIONS = [6, 12, 24] as const;
 
 export default async function DashboardPage({
   searchParams,
@@ -67,78 +70,34 @@ export default async function DashboardPage({
     requestedCurrency && currencies.includes(requestedCurrency)
       ? requestedCurrency
       : currencies[0];
-  const txns = allTxns.filter((t) => t.currency === currency);
+  const currencyTxns = allTxns.filter((t) => t.currency === currency);
 
-  // Grouping: by statement period (the billing cycle) by default, or by
-  // calendar month via the toggle.
+  // Grouping: by statement period (the billing cycle) by default.
   const group = params.group === "month" ? "month" : "statement";
-  const periods =
-    group === "month" ? byMonth(txns) : byStatement(txns, statements);
+  const allPeriods =
+    group === "month"
+      ? byMonth(currencyTxns)
+      : byStatement(currencyTxns, statements);
+
+  // Visible-window filter — never render more than MAX_PERIODS columns.
+  const requestedShow = Number(params.show);
+  const show = (SHOW_OPTIONS as readonly number[]).includes(requestedShow)
+    ? requestedShow
+    : MAX_PERIODS;
+  const periods = allPeriods.slice(-Math.min(show, MAX_PERIODS));
+  const visibleKeys = new Set(periods.map((p) => p.key));
+  const txns = currencyTxns.filter((t) =>
+    [...visibleKeys].some((k) => txnInPeriod(t, group, k)),
+  );
 
   const ranked = netByCategory(txns)
     .filter((c) => c.total > 0)
     .map((c) => c.category);
 
-  const latest = periods[periods.length - 1];
-  const previous = periods.length > 1 ? periods[periods.length - 2] : null;
-  const periodNoun = group === "month" ? "month" : "statement";
+  const periodNoun = group === "statement" ? "statement" : "month";
 
-  const tiles: Tile[] = [];
-  if (latest) {
-    const delta = previous ? latest.total - previous.total : null;
-    tiles.push({
-      label: `Spend · ${latest.label}`,
-      value: formatMoney(latest.total, currency),
-      sub:
-        delta === null
-          ? `first ${periodNoun} on record`
-          : `${delta >= 0 ? "+" : "−"}${formatMoney(Math.abs(delta), currency)} vs previous ${periodNoun}`,
-      subTone: delta === null ? "neutral" : delta > 0 ? "bad" : "good",
-    });
-
-    if (previous) {
-      let mover: { category: string; diff: number } | null = null;
-      const cats = new Set([
-        ...Object.keys(latest.byCategory),
-        ...Object.keys(previous.byCategory),
-      ]);
-      for (const c of cats) {
-        const diff = (latest.byCategory[c] ?? 0) - (previous.byCategory[c] ?? 0);
-        if (!mover || Math.abs(diff) > Math.abs(mover.diff)) {
-          mover = { category: c, diff };
-        }
-      }
-      if (mover) {
-        tiles.push({
-          label: "Biggest mover",
-          value: mover.category,
-          sub: `${mover.diff >= 0 ? "+" : "−"}${formatMoney(Math.abs(mover.diff), currency)} vs previous ${periodNoun}`,
-          subTone: mover.diff > 0 ? "bad" : "good",
-        });
-      }
-    }
-
-    const topCat = Object.entries(latest.byCategory)
-      .filter(([, net]) => net > 0)
-      .sort((a, b) => b[1] - a[1])[0];
-    if (topCat) {
-      tiles.push({
-        label: `Top category · latest ${periodNoun}`,
-        value: topCat[0],
-        sub: formatMoney(topCat[1], currency),
-      });
-    }
-
-    tiles.push({
-      label: "Money in (all time)",
-      value: formatMoney(totalMoneyIn(txns), currency),
-      sub: `${statements.length} statement${statements.length === 1 ? "" : "s"} uploaded`,
-    });
-  }
-
-  // Budgets are monthly by definition, so this section always uses calendar
-  // months regardless of the trend grouping.
-  const monthly = group === "month" ? periods : byMonth(txns);
+  // Budgets are monthly by definition — always calendar months, full history.
+  const monthly = byMonth(currencyTxns);
   const latestMonth = monthly[monthly.length - 1];
   const budgetRows = latestMonth
     ? categories
@@ -156,14 +115,19 @@ export default async function DashboardPage({
     b.uploaded_at.localeCompare(a.uploaded_at),
   );
 
-  const toggleHref = (g: "statement" | "month") =>
-    `/dashboard?group=${g}${currencies.length > 1 ? `&currency=${currency}` : ""}`;
+  const href = (over: { group?: string; show?: number; currency?: string }) => {
+    const q = new URLSearchParams();
+    q.set("group", over.group ?? group);
+    q.set("show", String(over.show ?? show));
+    if (currencies.length > 1) q.set("currency", over.currency ?? currency);
+    return `/dashboard?${q.toString()}`;
+  };
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
             {(
               [
@@ -173,7 +137,7 @@ export default async function DashboardPage({
             ).map(([g, label]) => (
               <Link
                 key={g}
-                href={toggleHref(g)}
+                href={href({ group: g })}
                 className={`rounded-md px-3 py-1 text-sm ${
                   g === group
                     ? "bg-zinc-900 font-medium text-white"
@@ -184,12 +148,30 @@ export default async function DashboardPage({
               </Link>
             ))}
           </div>
+
+          <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
+            {SHOW_OPTIONS.map((n) => (
+              <Link
+                key={n}
+                href={href({ show: n })}
+                title={`Show the last ${n} ${periodNoun}s`}
+                className={`rounded-md px-3 py-1 text-sm ${
+                  n === show
+                    ? "bg-zinc-900 font-medium text-white"
+                    : "text-zinc-600 hover:bg-zinc-100"
+                }`}
+              >
+                {n}
+              </Link>
+            ))}
+          </div>
+
           {currencies.length > 1 && (
             <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
               {currencies.map((c) => (
                 <Link
                   key={c}
-                  href={`/dashboard?group=${group}&currency=${c}`}
+                  href={href({ currency: c })}
                   className={`rounded-md px-3 py-1 text-sm ${
                     c === currency
                       ? "bg-zinc-900 font-medium text-white"
@@ -203,30 +185,23 @@ export default async function DashboardPage({
           )}
         </div>
       </div>
+      {allPeriods.length > periods.length && (
+        <p className="mt-1 text-xs text-zinc-400">
+          Showing the latest {periods.length} of {allPeriods.length} {periodNoun}s
+        </p>
+      )}
 
       <div className="mt-5">
-        <StatTiles tiles={tiles} />
-      </div>
-
-      <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-zinc-900">
-          Spend by category ·{" "}
-          {group === "statement" ? "per statement (billing cycle)" : "per calendar month"}
-        </h2>
-        <p className="mb-4 text-xs text-zinc-500">
-          Net of refunds · excludes card payments and transfers · {currency} ·
-          click a legend entry to drill into merchants
-        </p>
-        <TrendExplorer
+        <DashboardInteractive
           periods={periods}
           rankedCategories={ranked}
           txns={txns}
           currency={currency}
           group={group}
         />
-      </section>
+      </div>
 
-      {latest && (
+      {periods.length > 0 && (
         <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
           <h2 className="mb-3 text-sm font-semibold text-zinc-900">
             Spending pace
@@ -243,14 +218,13 @@ export default async function DashboardPage({
       <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
         <h2 className="text-sm font-semibold text-zinc-900">Top merchant</h2>
         <p className="mb-4 text-xs text-zinc-500">
-          The single biggest merchant (net of refunds) inside each{" "}
-          {group === "statement" ? "statement" : "month"} and each category —
-          click a bar to see the transactions behind it
+          The single biggest merchant (net of refunds) inside each {periodNoun}{" "}
+          and each category — click a bar to see the transactions behind it
         </p>
         <TopMerchantViz
           perPeriod={topMerchantPerPeriod(txns, periods, group)}
           perCategory={topMerchantPerCategory(txns)}
-          periodNoun={group === "statement" ? "statement" : "month"}
+          periodNoun={periodNoun}
           currency={currency}
           txns={txns}
           categories={categories.map((c) => c.name)}

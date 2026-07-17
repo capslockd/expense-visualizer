@@ -292,6 +292,76 @@ export function topSpendDays(
     .slice(0, limit);
 }
 
+/** Net spend per merchant within one period bucket. */
+export function merchantNetInPeriod(
+  txns: Txn[],
+  group: "statement" | "month",
+  periodKey: string,
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const t of txns) {
+    if (!isExpenseCategory(t.category)) continue;
+    if (!txnInPeriod(t, group, periodKey)) continue;
+    map.set(t.merchant, round2((map.get(t.merchant) ?? 0) + signed(t)));
+  }
+  return map;
+}
+
+/** The merchant whose net spend changed the most between two periods. */
+export function topMoverMerchant(
+  txns: Txn[],
+  group: "statement" | "month",
+  currentKey: string,
+  previousKey: string,
+): { merchant: string; diff: number } | null {
+  const cur = merchantNetInPeriod(txns, group, currentKey);
+  const prev = merchantNetInPeriod(txns, group, previousKey);
+  let best: { merchant: string; diff: number } | null = null;
+  for (const merchant of new Set([...cur.keys(), ...prev.keys()])) {
+    const diff = round2((cur.get(merchant) ?? 0) - (prev.get(merchant) ?? 0));
+    if (!best || Math.abs(diff) > Math.abs(best.diff)) best = { merchant, diff };
+  }
+  return best && best.diff !== 0 ? best : null;
+}
+
+/** The single largest charge (debit) in a period. */
+export function largestPurchase(
+  txns: Txn[],
+  group: "statement" | "month",
+  periodKey: string,
+): Txn | null {
+  let best: Txn | null = null;
+  for (const t of txns) {
+    if (t.direction !== "debit" || !isExpenseCategory(t.category)) continue;
+    if (!txnInPeriod(t, group, periodKey)) continue;
+    if (!best || t.amount > best.amount) best = t;
+  }
+  return best;
+}
+
+/** Inclusive day span covered by a period's transactions (≥ 1 when any exist). */
+export function periodDaySpan(
+  txns: Txn[],
+  group: "statement" | "month",
+  periodKey: string,
+): number {
+  let min: string | null = null;
+  let max: string | null = null;
+  for (const t of txns) {
+    if (!isExpenseCategory(t.category)) continue;
+    if (!txnInPeriod(t, group, periodKey)) continue;
+    if (!min || t.date < min) min = t.date;
+    if (!max || t.date > max) max = t.date;
+  }
+  if (!min || !max) return 0;
+  return (
+    Math.floor(
+      (new Date(`${max}T00:00:00Z`).getTime() - new Date(`${min}T00:00:00Z`).getTime()) /
+        86_400_000,
+    ) + 1
+  );
+}
+
 export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
 /** Net spend per day of week (Mon-first), for "which weekday costs the most?". */
