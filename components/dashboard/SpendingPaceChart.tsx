@@ -12,57 +12,70 @@ import {
 import { chart } from "./chartTheme";
 import { formatMoney } from "@/lib/analytics";
 
+export interface PaceSeries {
+  key: string;
+  label: string;
+  points: Array<{ day: number; cum: number }>;
+  /** accent = the focused cycle; muted = comparison cycles; average = dashed benchmark. */
+  variant: "accent" | "muted" | "average";
+}
+
 /**
- * Spending pace: cumulative net spend through the current period vs the
- * previous one, aligned by day-of-period — answers "am I spending faster
- * than last cycle?" Emphasis form: current in accent, previous in gray.
+ * Cumulative spend lines aligned by day-of-cycle. Each series stops at its
+ * own last spend day (an unfinished cycle simply ends earlier). Emphasis
+ * form: one accent line, recessive gray comparisons, dashed average.
  */
 export default function SpendingPaceChart({
-  current,
-  previous,
-  currentLabel,
-  previousLabel,
+  series,
   currency,
 }: {
-  current: Array<{ day: number; cum: number }>;
-  previous: Array<{ day: number; cum: number }>;
-  currentLabel: string;
-  previousLabel: string | null;
+  series: PaceSeries[];
   currency: string;
 }) {
-  if (current.length === 0) {
+  const drawable = series.filter((s) => s.points.length > 0);
+  if (drawable.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-zinc-500">
-        No spending in the latest period yet.
+        No spending in the selected scope yet.
       </p>
     );
   }
 
-  // Merge the two series onto one day axis.
-  const maxDay = Math.max(
-    current[current.length - 1]?.day ?? 0,
-    previous[previous.length - 1]?.day ?? 0,
+  const maxDay = Math.max(...drawable.map((s) => s.points[s.points.length - 1].day));
+
+  // One row per day; each series carries its value forward until its own end.
+  const rows: Array<Record<string, number | undefined>> = [];
+  const lastValue = new Map<string, number>();
+  const lastDay = new Map(
+    drawable.map((s) => [s.key, s.points[s.points.length - 1].day]),
   );
-  const currentByDay = new Map(current.map((p) => [p.day, p.cum]));
-  const previousByDay = new Map(previous.map((p) => [p.day, p.cum]));
-  const rows: Array<{ day: number; current?: number; previous?: number }> = [];
-  let lastCur: number | undefined;
-  let lastPrev: number | undefined;
-  const lastCurrentDay = current[current.length - 1]?.day ?? 0;
+  const pointsByDay = new Map(
+    drawable.map((s) => [s.key, new Map(s.points.map((p) => [p.day, p.cum]))]),
+  );
   for (let day = 1; day <= maxDay; day++) {
-    if (currentByDay.has(day)) lastCur = currentByDay.get(day);
-    if (previousByDay.has(day)) lastPrev = previousByDay.get(day);
-    rows.push({
-      day,
-      // step-carry so lines don't dip to zero between spend days;
-      // current stops at its last real day (the cycle is still running)
-      current: day <= lastCurrentDay ? lastCur : undefined,
-      previous: lastPrev,
-    });
+    const row: Record<string, number | undefined> = { day };
+    for (const s of drawable) {
+      const hit = pointsByDay.get(s.key)?.get(day);
+      if (hit !== undefined) lastValue.set(s.key, hit);
+      row[s.key] =
+        day <= (lastDay.get(s.key) ?? 0) ? lastValue.get(s.key) : undefined;
+    }
+    rows.push(row);
   }
 
+  const styleOf = (variant: PaceSeries["variant"]) => {
+    switch (variant) {
+      case "accent":
+        return { stroke: chart.accent, strokeWidth: 2.5, strokeDasharray: undefined };
+      case "average":
+        return { stroke: chart.inkSecondary, strokeWidth: 2, strokeDasharray: "6 4" };
+      default:
+        return { stroke: chart.deemphasis, strokeWidth: 1.5, strokeDasharray: undefined };
+    }
+  };
+
   return (
-    <ResponsiveContainer width="100%" height={260}>
+    <ResponsiveContainer width="100%" height={280}>
       <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
         <CartesianGrid vertical={false} stroke={chart.grid} strokeWidth={1} />
         <XAxis
@@ -84,55 +97,61 @@ export default function SpendingPaceChart({
           cursor={{ stroke: chart.baseline, strokeDasharray: "3 3" }}
           content={({ active, payload, label }) => {
             if (!active || !payload?.length) return null;
-            const cur = payload.find((p) => p.dataKey === "current");
-            const prev = payload.find((p) => p.dataKey === "previous");
+            const items = payload
+              .filter((p) => p.value !== undefined && p.value !== null)
+              .map((p) => {
+                const s = drawable.find((x) => x.key === String(p.dataKey));
+                return s
+                  ? { label: s.label, value: Number(p.value), variant: s.variant }
+                  : null;
+              })
+              .filter((x): x is NonNullable<typeof x> => x !== null)
+              .sort((a, b) => b.value - a.value);
             return (
-              <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs shadow-sm">
+              <div className="min-w-44 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs shadow-sm">
                 <p className="font-medium text-zinc-900">Day {String(label)} of cycle</p>
-                {cur?.value !== undefined && (
-                  <p className="flex items-center gap-1.5 text-zinc-700">
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: chart.accent }} />
-                    {currentLabel}:{" "}
-                    <span className="tabular-nums font-medium">
-                      {formatMoney(Number(cur.value), currency)}
-                    </span>
-                  </p>
-                )}
-                {prev?.value !== undefined && previousLabel && (
-                  <p className="flex items-center gap-1.5 text-zinc-500">
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: chart.deemphasis }} />
-                    {previousLabel}:{" "}
-                    <span className="tabular-nums">
-                      {formatMoney(Number(prev.value), currency)}
-                    </span>
-                  </p>
-                )}
+                <ul className="mt-1 space-y-0.5">
+                  {items.map((it) => (
+                    <li key={it.label} className="flex items-center justify-between gap-4">
+                      <span className="flex items-center gap-1.5 text-zinc-600">
+                        <span
+                          className="inline-block h-2 w-2 rounded-full"
+                          style={{ background: styleOf(it.variant).stroke }}
+                        />
+                        {it.label}
+                      </span>
+                      <span
+                        className={`tabular-nums ${it.variant === "accent" ? "font-medium text-zinc-900" : "text-zinc-600"}`}
+                      >
+                        {formatMoney(it.value, currency)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             );
           }}
         />
-        {previousLabel && (
-          <Line
-            type="monotone"
-            dataKey="previous"
-            name={previousLabel}
-            stroke={chart.deemphasis}
-            strokeWidth={2}
-            dot={false}
-            isAnimationActive={false}
-            connectNulls
-          />
-        )}
-        <Line
-          type="monotone"
-          dataKey="current"
-          name={currentLabel}
-          stroke={chart.accent}
-          strokeWidth={2.5}
-          dot={false}
-          isAnimationActive={false}
-          connectNulls
-        />
+        {/* Muted lines first so the accent draws on top. */}
+        {[...drawable]
+          .sort((a, b) => (a.variant === "accent" ? 1 : 0) - (b.variant === "accent" ? 1 : 0))
+          .map((s) => {
+            const style = styleOf(s.variant);
+            return (
+              <Line
+                key={s.key}
+                type="monotone"
+                dataKey={s.key}
+                name={s.label}
+                stroke={style.stroke}
+                strokeWidth={style.strokeWidth}
+                strokeDasharray={style.strokeDasharray}
+                dot={false}
+                isAnimationActive={false}
+                connectNulls
+              />
+            );
+          })}
       </LineChart>
     </ResponsiveContainer>
   );

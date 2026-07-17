@@ -235,6 +235,87 @@ export function cumulativeSpend(
 }
 
 /**
+ * Average of several cumulative curves, day-aligned. For each day index,
+ * every curve contributes its value at min(day, its last day) — a finished
+ * cycle carries its final total forward so the average doesn't dip.
+ */
+export function averageCumulative(
+  curves: Array<Array<{ day: number; cum: number }>>,
+): Array<{ day: number; cum: number }> {
+  const nonEmpty = curves.filter((c) => c.length > 0);
+  if (nonEmpty.length === 0) return [];
+  const maxDay = Math.max(...nonEmpty.map((c) => c[c.length - 1].day));
+  const out: Array<{ day: number; cum: number }> = [];
+  for (let day = 1; day <= maxDay; day++) {
+    let sum = 0;
+    for (const curve of nonEmpty) {
+      let val = 0;
+      for (const p of curve) {
+        if (p.day <= day) val = p.cum;
+        else break;
+      }
+      sum += val;
+    }
+    out.push({ day, cum: round2(sum / nonEmpty.length) });
+  }
+  return out;
+}
+
+/** Highest-spend days (net of refunds) with each day's biggest merchant. */
+export function topSpendDays(
+  txns: Txn[],
+  limit = 3,
+): Array<{ date: string; total: number; topMerchant: string; count: number }> {
+  const byDate = new Map<string, { total: number; count: number; merchants: Map<string, number> }>();
+  for (const t of txns) {
+    if (!isExpenseCategory(t.category)) continue;
+    const d = byDate.get(t.date) ?? { total: 0, count: 0, merchants: new Map() };
+    d.total += signed(t);
+    d.count += 1;
+    d.merchants.set(t.merchant, (d.merchants.get(t.merchant) ?? 0) + signed(t));
+    byDate.set(t.date, d);
+  }
+  return [...byDate.entries()]
+    .map(([date, d]) => {
+      let top = "";
+      let topVal = -Infinity;
+      for (const [m, v] of d.merchants) {
+        if (v > topVal) {
+          top = m;
+          topVal = v;
+        }
+      }
+      return { date, total: round2(d.total), topMerchant: top, count: d.count };
+    })
+    .filter((d) => d.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, limit);
+}
+
+export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+/** Net spend per day of week (Mon-first), for "which weekday costs the most?". */
+export function byWeekday(
+  txns: Txn[],
+): Array<{ weekday: (typeof WEEKDAYS)[number]; total: number; count: number }> {
+  const totals = new Array(7).fill(0);
+  const counts = new Array(7).fill(0);
+  for (const t of txns) {
+    if (!isExpenseCategory(t.category)) continue;
+    const parsed = new Date(`${t.date}T00:00:00Z`);
+    if (Number.isNaN(parsed.getTime())) continue;
+    const idx = (parsed.getUTCDay() + 6) % 7; // Sunday(0) → 6, Monday(1) → 0
+    totals[idx] += signed(t);
+    counts[idx] += 1;
+  }
+  return WEEKDAYS.map((weekday, i) => ({
+    weekday,
+    total: round2(totals[i]),
+    count: counts[i],
+  }));
+}
+
+/**
  * Merchant rollup within one category — powers the legend drill-down.
  * `total` is net of refunds; `orders` counts debit transactions (a refund is
  * not an order, it just reduces the merchant's net); `refunds` counts credits.

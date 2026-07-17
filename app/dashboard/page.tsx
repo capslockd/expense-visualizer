@@ -5,7 +5,6 @@ import { getCategories, getStatements, getTransactions } from "@/lib/sheets/repo
 import {
   byMonth,
   byStatement,
-  cumulativeSpend,
   currenciesOf,
   formatMoney,
   monthLabel,
@@ -14,7 +13,7 @@ import {
   topMerchantPerPeriod,
   totalMoneyIn,
 } from "@/lib/analytics";
-import SpendingPaceChart from "@/components/dashboard/SpendingPaceChart";
+import PaceExplorer from "@/components/dashboard/PaceExplorer";
 import StatTiles, { Tile } from "@/components/dashboard/StatTiles";
 import TrendExplorer from "@/components/dashboard/TrendExplorer";
 import BudgetVsActual from "@/components/dashboard/BudgetVsActual";
@@ -229,25 +228,14 @@ export default async function DashboardPage({
 
       {latest && (
         <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-zinc-900">Spending pace</h2>
-          <p className="mb-4 text-xs text-zinc-500">
-            Cumulative net spend through the {periodNoun}, day by day —{" "}
-            <span style={{ color: "#2a78d6" }} className="font-medium">
-              {latest.label}
-            </span>
-            {previous ? (
-              <>
-                {" "}
-                vs <span className="text-zinc-400">{previous.label}</span>
-              </>
-            ) : null}
-          </p>
-          <SpendingPaceChart
-            current={cumulativeSpend(txns, group, latest.key)}
-            previous={previous ? cumulativeSpend(txns, group, previous.key) : []}
-            currentLabel={latest.label}
-            previousLabel={previous?.label ?? null}
+          <h2 className="mb-3 text-sm font-semibold text-zinc-900">
+            Spending pace
+          </h2>
+          <PaceExplorer
+            periods={periods}
+            txns={txns}
             currency={currency}
+            group={group}
           />
         </section>
       )}
