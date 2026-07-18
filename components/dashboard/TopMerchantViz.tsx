@@ -12,7 +12,14 @@ import {
   YAxis,
 } from "recharts";
 import { chart } from "./chartTheme";
-import { TopMerchantEntry, formatMoney, txnInPeriod } from "@/lib/analytics";
+import {
+  Period,
+  TopMerchantEntry,
+  formatMoney,
+  topMerchantPerCategory,
+  topMerchantPerPeriod,
+  txnInPeriod,
+} from "@/lib/analytics";
 import { Txn } from "@/lib/types";
 import EditableTxnTable from "./EditableTxnTable";
 
@@ -131,24 +138,38 @@ function TopMerchantBars({
  * transaction behind it.
  */
 export default function TopMerchantViz({
-  perPeriod,
-  perCategory,
+  periods,
   periodNoun,
   currency,
-  txns,
+  txns: allTxns,
   categories,
   group,
+  visibleCategories,
 }: {
-  perPeriod: TopMerchantEntry[];
-  perCategory: TopMerchantEntry[];
+  periods: Period[];
   periodNoun: "statement" | "month";
   currency: string;
   txns: Txn[];
   categories: string[];
   group: "statement" | "month";
+  /** Category filter from the Spend-by-category card — null = all. */
+  visibleCategories: string[] | null;
 }) {
   const [view, setView] = useState<"period" | "category">("period");
   const [selection, setSelection] = useState<Selection | null>(null);
+
+  // The whole section follows the category filter, drill included.
+  const txns = useMemo(() => {
+    if (!visibleCategories) return allTxns;
+    const visible = new Set(visibleCategories);
+    return allTxns.filter((t) => visible.has(t.category));
+  }, [allTxns, visibleCategories]);
+
+  const perPeriod = useMemo(
+    () => topMerchantPerPeriod(txns, periods, group),
+    [txns, periods, group],
+  );
+  const perCategory = useMemo(() => topMerchantPerCategory(txns), [txns]);
 
   const drillTxns = useMemo(() => {
     if (!selection) return [];

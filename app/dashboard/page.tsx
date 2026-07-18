@@ -9,14 +9,10 @@ import {
   formatMoney,
   monthLabel,
   netByCategory,
-  topMerchantPerCategory,
-  topMerchantPerPeriod,
   txnInPeriod,
 } from "@/lib/analytics";
-import DashboardInteractive from "@/components/dashboard/DashboardInteractive";
-import PaceExplorer from "@/components/dashboard/PaceExplorer";
+import DashboardSections from "@/components/dashboard/DashboardSections";
 import BudgetPanel from "@/components/dashboard/BudgetPanel";
-import TopMerchantViz from "@/components/dashboard/TopMerchantViz";
 import {
   DeleteAllStatementsButton,
   DeleteStatementIcon,
@@ -101,9 +97,6 @@ export default async function DashboardPage({
   for (const c of categories) {
     if ((c.monthly_budget ?? 0) > 0) budgets[c.name] = c.monthly_budget as number;
   }
-  const budgetTotal =
-    Math.round(Object.values(budgets).reduce((s, v) => s + v, 0) * 100) / 100;
-
   // Pace gets both cuts regardless of the page grouping (statements usually
   // run mid-month → mid-month, so both levels are useful side by side).
   const statementPeriodsAll = group === "statement" ? allPeriods : byStatement(currencyTxns, statements);
@@ -197,48 +190,19 @@ export default async function DashboardPage({
       )}
 
       <div className="mt-5">
-        <DashboardInteractive
+        <DashboardSections
           periods={periods}
+          statementPeriods={statementPeriods}
+          monthPeriods={monthPeriods}
           rankedCategories={ranked}
           txns={txns}
+          allCurrencyTxns={currencyTxns}
           currency={currency}
           group={group}
           budgets={budgets}
+          categoryNames={categories.map((c) => c.name)}
         />
       </div>
-
-      {periods.length > 0 && (
-        <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
-          <h2 className="mb-3 text-sm font-semibold text-zinc-900">
-            Spending pace
-          </h2>
-          <PaceExplorer
-            statementPeriods={statementPeriods}
-            monthPeriods={monthPeriods}
-            txns={currencyTxns}
-            currency={currency}
-            defaultLevel={group}
-            budgetTotal={budgetTotal > 0 ? budgetTotal : null}
-          />
-        </section>
-      )}
-
-      <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-zinc-900">Top merchant</h2>
-        <p className="mb-4 text-xs text-zinc-500">
-          The single biggest merchant (net of refunds) inside each {periodNoun}{" "}
-          and each category — click a bar to see the transactions behind it
-        </p>
-        <TopMerchantViz
-          perPeriod={topMerchantPerPeriod(txns, periods, group)}
-          perCategory={topMerchantPerCategory(txns)}
-          periodNoun={periodNoun}
-          currency={currency}
-          txns={txns}
-          categories={categories.map((c) => c.name)}
-          group={group}
-        />
-      </section>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <section className="rounded-xl border border-zinc-200 bg-white p-5">

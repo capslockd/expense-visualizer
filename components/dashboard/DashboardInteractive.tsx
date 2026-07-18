@@ -32,6 +32,8 @@ export default function DashboardInteractive({
   currency,
   group,
   budgets,
+  filter,
+  onFilterChange,
 }: {
   periods: Period[];
   rankedCategories: string[];
@@ -40,6 +42,9 @@ export default function DashboardInteractive({
   group: "statement" | "month";
   /** Per-cycle budget per category (only categories with a budget set). */
   budgets: Record<string, number>;
+  /** Category filter — owned by the parent so every section can follow it. */
+  filter: Set<string> | null;
+  onFilterChange: (next: Set<string> | null) => void;
 }) {
   const periodNoun = group === "statement" ? "statement" : "month";
   const [focusKey, setFocusKey] = useState<string | null>(null);
@@ -49,8 +54,6 @@ export default function DashboardInteractive({
   const [chartType, setChartType] = useState<"bars" | "pie">("bars");
   // Pie scope: null = aggregate every visible period; else one period key.
   const [piePeriodKey, setPiePeriodKey] = useState<string | null>(null);
-  // null = every category; otherwise the filtered set.
-  const [filter, setFilter] = useState<Set<string> | null>(null);
 
   const visibleCategories = useMemo(
     () => (filter ? rankedCategories.filter((c) => filter.has(c)) : null),
@@ -63,16 +66,17 @@ export default function DashboardInteractive({
   }, [visibleCategories, rankedCategories, budgets]);
 
   function toggleFilter(category: string) {
-    setFilter((prev) => {
-      const next = new Set(prev ?? []);
-      if (prev === null) {
-        // From "all" → isolate the clicked category.
-        return new Set([category]);
-      }
-      if (next.has(category)) next.delete(category);
-      else next.add(category);
-      return next.size === 0 || next.size === rankedCategories.length ? null : next;
-    });
+    if (filter === null) {
+      // From "all" → isolate the clicked category.
+      onFilterChange(new Set([category]));
+      return;
+    }
+    const next = new Set(filter);
+    if (next.has(category)) next.delete(category);
+    else next.add(category);
+    onFilterChange(
+      next.size === 0 || next.size === rankedCategories.length ? null : next,
+    );
   }
 
   const focusIdx = useMemo(() => {
@@ -317,7 +321,7 @@ export default function DashboardInteractive({
           <span className="text-xs text-zinc-500">Categories:</span>
           <button
             type="button"
-            onClick={() => setFilter(null)}
+            onClick={() => onFilterChange(null)}
             className={`rounded-full border px-2.5 py-0.5 text-xs ${
               filter === null
                 ? "border-zinc-900 bg-zinc-900 font-medium text-white"

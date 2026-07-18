@@ -28,22 +28,32 @@ type Level = "statement" | "month";
 export default function PaceExplorer({
   statementPeriods,
   monthPeriods,
-  txns,
+  txns: allTxns,
   currency,
   defaultLevel,
   budgetTotal,
+  visibleCategories,
 }: {
   statementPeriods: Period[];
   monthPeriods: Period[];
   txns: Txn[];
   currency: string;
   defaultLevel: Level;
-  /** Aggregate per-cycle budget across all categories (red target line). */
+  /** Aggregate per-cycle budget for the visible categories (red target line). */
   budgetTotal: number | null;
+  /** Category filter from the Spend-by-category card — null = all. */
+  visibleCategories: string[] | null;
 }) {
   const [level, setLevel] = useState<Level>(defaultLevel);
   const [mode, setMode] = useState<Mode>("previous");
   const [focusKey, setFocusKey] = useState<string | null>(null);
+
+  // Every curve, top-day, and weekday figure follows the category filter.
+  const txns = useMemo(() => {
+    if (!visibleCategories) return allTxns;
+    const visible = new Set(visibleCategories);
+    return allTxns.filter((t) => visible.has(t.category));
+  }, [allTxns, visibleCategories]);
 
   const periods = level === "statement" ? statementPeriods : monthPeriods;
   const periodNoun = level;
@@ -124,14 +134,18 @@ export default function PaceExplorer({
   const topDays = useMemo(() => topSpendDays(scopedTxns, 10), [scopedTxns]);
   const weekdays = useMemo(() => byWeekday(scopedTxns), [scopedTxns]);
 
+  const filterNote = visibleCategories
+    ? ` · filtered to ${visibleCategories.join(", ")}`
+    : "";
   const subtitle =
-    mode === "previous"
+    (mode === "previous"
       ? previous
         ? `${focus?.label} vs ${previous.label}`
         : `${focus?.label} — first ${periodNoun}, nothing earlier to compare`
       : mode === "all"
         ? `${focus?.label} highlighted against every ${periodNoun}`
-        : `${focus?.label} vs the average of all ${periods.length} ${periodNoun}s`;
+        : `${focus?.label} vs the average of all ${periods.length} ${periodNoun}s`) +
+    filterNote;
 
   return (
     <div>
