@@ -51,7 +51,8 @@ export default function StatementPieModal({
 
   const slots = useMemo(() => assignSlots(rankedCategories), [rankedCategories]);
 
-  // Slices: positive category nets; small/unslotted ones fold into gray.
+  // Slices: every category with positive net renders individually; only
+  // categories beyond the 16 color slots fold into gray (rare guard).
   const slices = useMemo(() => {
     const breakdown = netByCategory(periodTxns).filter((c) => c.total > 0);
     const total = breakdown.reduce((s, c) => s + c.total, 0);
@@ -59,7 +60,7 @@ export default function StatementPieModal({
     let other = 0;
     for (const c of breakdown) {
       const color = slots.get(c.category);
-      if (color && c.total / total >= 0.02) {
+      if (color) {
         main.push({ name: c.category, value: c.total, color, pct: c.total / total });
       } else {
         other += c.total;

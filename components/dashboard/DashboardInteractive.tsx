@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Txn } from "@/lib/types";
 import {
   Period,
@@ -34,6 +34,7 @@ export default function DashboardInteractive({
   budgets,
   filter,
   onFilterChange,
+  onActiveCategoryChange,
 }: {
   periods: Period[];
   rankedCategories: string[];
@@ -45,6 +46,8 @@ export default function DashboardInteractive({
   /** Category filter — owned by the parent so every section can follow it. */
   filter: Set<string> | null;
   onFilterChange: (next: Set<string> | null) => void;
+  /** Reports the clicked (drilled) category so Spending pace can follow it. */
+  onActiveCategoryChange?: (categories: string[] | null) => void;
 }) {
   const periodNoun = group === "statement" ? "statement" : "month";
   const [focusKey, setFocusKey] = useState<string | null>(null);
@@ -224,6 +227,19 @@ export default function DashboardInteractive({
       ? chart.fold
       : (slots.get(drillCategory) ?? chart.fold)
     : chart.fold;
+
+  // Let the parent align other sections (Spending pace) to the clicked
+  // category. OTHER_KEY resolves to the actual folded categories.
+  useEffect(() => {
+    if (!onActiveCategoryChange) return;
+    if (!drillCategory) {
+      onActiveCategoryChange(null);
+    } else if (drillCategory === OTHER_KEY) {
+      onActiveCategoryChange(rankedCategories.filter((c) => !topSet.has(c)));
+    } else {
+      onActiveCategoryChange([drillCategory]);
+    }
+  }, [drillCategory, onActiveCategoryChange, rankedCategories, topSet]);
 
   function handleSelectCategory(category: string, periodKey?: string) {
     if (periodKey) setFocusKey(periodKey); // clicking a bar focuses its statement

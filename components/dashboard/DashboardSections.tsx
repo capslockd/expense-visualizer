@@ -38,20 +38,27 @@ export default function DashboardSections({
   categoryNames: string[];
 }) {
   const [filter, setFilter] = useState<Set<string> | null>(null);
+  // The category clicked/drilled in the bar or pie chart — narrows Spending
+  // pace to that category (overriding the broader chip filter while active).
+  const [activeDrill, setActiveDrill] = useState<string[] | null>(null);
 
   const visibleCategories = useMemo(
     () => (filter ? rankedCategories.filter((c) => filter.has(c)) : null),
     [filter, rankedCategories],
   );
-  const filteredBudgetTotal = useMemo(() => {
-    const cats = visibleCategories ?? rankedCategories;
+  const paceCategories = activeDrill ?? visibleCategories;
+  const paceBudgetTotal = useMemo(() => {
+    const cats = paceCategories ?? rankedCategories;
     const sum = cats.reduce((s, c) => s + (budgets[c] ?? 0), 0);
     return Math.round(sum * 100) / 100;
-  }, [visibleCategories, rankedCategories, budgets]);
+  }, [paceCategories, rankedCategories, budgets]);
 
   const filterNote = visibleCategories
     ? ` — filtered to ${visibleCategories.join(", ")}`
     : "";
+  const paceNote = activeDrill
+    ? ` — showing ${activeDrill.join(", ")} (clicked in the chart)`
+    : filterNote;
   const periodNoun = group === "statement" ? "statement" : "month";
 
   return (
@@ -65,14 +72,15 @@ export default function DashboardSections({
         budgets={budgets}
         filter={filter}
         onFilterChange={setFilter}
+        onActiveCategoryChange={setActiveDrill}
       />
 
       {periods.length > 0 && (
         <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
           <h2 className="mb-3 text-sm font-semibold text-zinc-900">
             Spending pace
-            {filterNote && (
-              <span className="ml-1 font-normal text-zinc-400">{filterNote}</span>
+            {paceNote && (
+              <span className="ml-1 font-normal text-zinc-400">{paceNote}</span>
             )}
           </h2>
           <PaceExplorer
@@ -81,8 +89,8 @@ export default function DashboardSections({
             txns={allCurrencyTxns}
             currency={currency}
             defaultLevel={group}
-            budgetTotal={filteredBudgetTotal > 0 ? filteredBudgetTotal : null}
-            visibleCategories={visibleCategories}
+            budgetTotal={paceBudgetTotal > 0 ? paceBudgetTotal : null}
+            visibleCategories={paceCategories}
           />
         </section>
       )}

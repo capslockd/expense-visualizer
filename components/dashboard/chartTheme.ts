@@ -1,8 +1,12 @@
 /**
- * Chart tokens — the dataviz reference palette (light mode), validated with
- * scripts/validate_palette.js against surface #fcfcfb:
- * adjacent CVD ΔE 9.1, normal-vision ΔE 19.6 — PASS. Three slots sit below
- * 3:1 contrast, so every chart pairs marks with visible labels or a table.
+ * Chart tokens — the dataviz reference palette (light mode) extended to 16
+ * categorical slots so every category renders individually (no "Other" fold
+ * up to 16). Validated with scripts/validate_palette.js against surface
+ * #fcfcfb: lightness band PASS, chroma PASS, normal-vision floor ΔE 17.8
+ * PASS; worst adjacent CVD pair ΔE 7.4 sits in the legal 6–8 band, covered
+ * by secondary encoding (legend always present, 2px surface gaps between
+ * stacked segments, direct labels/tooltips). Low-contrast slots rely on the
+ * relief rule: visible labels + table views accompany every chart.
  */
 export const chart = {
   surface: "#fcfcfb",
@@ -17,7 +21,12 @@ export const chart = {
   deemphasis: "#c3c2b7",
 
   /** Categorical slots, fixed order — assigned to categories by all-time rank, never cycled. */
-  slots: ["#2a78d6", "#008300", "#e87ba4", "#eda100", "#1baf7a", "#eb6834"],
+  slots: [
+    "#2a78d6", "#008300", "#e87ba4", "#eda100",
+    "#1baf7a", "#eb6834", "#4a3aa7", "#e34948",
+    "#0e7f9e", "#7a8a00", "#b0426e", "#a87400",
+    "#0e7a55", "#a34a1f", "#9085e9", "#9c2b2b",
+  ],
   /** Visual fold for the small remainder ("Other categories") — a rollup, not a data category. */
   fold: "#898781",
 
