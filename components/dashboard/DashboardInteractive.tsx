@@ -17,6 +17,7 @@ import StatTiles, { Tile } from "./StatTiles";
 import TrendChart, { OTHER_KEY } from "./TrendChart";
 import CategoryPie from "./CategoryPie";
 import CategoryOrdersChart from "./CategoryOrdersChart";
+import CategoryTrendChart from "./CategoryTrendChart";
 import StatementPieModal from "./StatementPieModal";
 
 /**
@@ -227,6 +228,19 @@ export default function DashboardInteractive({
       ? chart.fold
       : (slots.get(drillCategory) ?? chart.fold)
     : chart.fold;
+
+  // Budget line for the per-period comparison chart — sum the folded
+  // categories' budgets when the drill is the "Other categories" rollup.
+  const drillBudget = useMemo(() => {
+    if (!drillCategory) return null;
+    if (drillCategory === OTHER_KEY) {
+      const sum = rankedCategories
+        .filter((c) => !topSet.has(c))
+        .reduce((s, c) => s + (budgets[c] ?? 0), 0);
+      return sum > 0 ? Math.round(sum * 100) / 100 : null;
+    }
+    return budgets[drillCategory] ?? null;
+  }, [drillCategory, rankedCategories, topSet, budgets]);
 
   // Let the parent align other sections (Spending pace) to the clicked
   // category. OTHER_KEY resolves to the actual folded categories.
@@ -467,6 +481,26 @@ export default function DashboardInteractive({
               >
                 Close ✕
               </button>
+            </div>
+
+            <div className="mb-4 border-b border-zinc-200 pb-4">
+              <h4 className="mb-1 text-xs font-semibold text-zinc-700">
+                {drillCategory} · net per {periodNoun}, vs previous {periodNoun}s
+              </h4>
+              <p className="mb-2 text-xs text-zinc-500">
+                Click a bar to jump the order list below to that {periodNoun}
+              </p>
+              <CategoryTrendChart
+                periods={periods}
+                rankedCategories={rankedCategories}
+                category={drillCategory}
+                currency={currency}
+                color={drillColor}
+                periodNoun={periodNoun}
+                budget={drillBudget}
+                focusPeriodKey={drillPeriodKey}
+                onSelectPeriod={setDrillPeriodKey}
+              />
             </div>
 
             <div className="mb-3 flex flex-wrap items-center gap-1.5">
