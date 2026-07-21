@@ -23,6 +23,12 @@ import { Direction } from "@/lib/types";
  */
 const KEYWORDS: Array<[string, string] | [string, string, Direction]> = [
   // --- Specific-before-general disambiguations ------------------------
+  // SALARY/PAYROLL are checked before every merchant keyword below because
+  // a payslip's reference text often names the employer or payroll
+  // processor — which can itself be a recognized merchant (e.g. a "Salary
+  // Deposit ... Energy Australia ..." credit must stay Salary, not get
+  // intercepted by the "ENERGY AUSTRALIA" → Utilities merchant match).
+  ["SALARY", "Salary"], ["PAYROLL", "Salary"],
   ["COLES EXPRESS", "Transport"], // Shell Coles Express fuel
   ["REDDY EXPRESS", "Transport"], // Coles Express rebrand
   ["WOOLWORTHS PETROL", "Transport"],
@@ -169,8 +175,7 @@ const KEYWORDS: Array<[string, string] | [string, string, Direction]> = [
   ["BODY CORPORATE", "Housing"],
 
   // --- Generic phrases LAST (so merchant names above win first) ---------------
-  // Income
-  ["SALARY", "Salary"], ["PAYROLL", "Salary"],
+  // Income (SALARY/PAYROLL live in the disambiguations section above)
   ["CENTRELINK", "Government Benefits"],
   ["CASHBACK", "Interest & Cashback"], ["CASH REBATE", "Interest & Cashback"],
   ["INTEREST EARNED", "Interest & Cashback"], ["INTEREST CREDIT", "Interest & Cashback"],

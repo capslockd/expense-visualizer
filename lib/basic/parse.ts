@@ -477,10 +477,92 @@ function parseStatementLines(text: string): BasicParseResult | null {
   };
 }
 
+// ---------------------------------------------------------------- multi-line columnar parser (PDF text)
+
+/**
+ * Parse statement rows from PDF text where a table's numeric columns get
+ * extracted BEFORE its description column — a text-layer ordering quirk
+ * seen when "Details" sits visually left of "Money out/in/Balance" but the
+ * PDF's content stream emits the numeric cells first — and a transaction's
+ * description wraps onto the following lines with no leading date:
+ *
+ *   01/04/2026 -946.04 28,356.47Internal Transfer - Receipt 807905
+ *   Transfer To 200021193
+ *   01/04/2026 1,001.16 28,265.93Salary Deposit - Receipt 110435
+ *   Heathdale Christ 10435308878679
+ *
+ * Shape per transaction: DATE, one signed amount (negative = money out,
+ * positive = money in), the running balance (immediately followed, with no
+ * space, by the description's first line), then zero or more continuation
+ * lines until the next date-anchored line. Stops at the first "Total ..."
+ * summary line, which reliably marks the end of the transaction table.
+ */
+const MULTILINE_START_RE = new RegExp(
+  String.raw`^(${DATE_TOKEN})\s+(-?[\d,]+\.\d{2})\s+([\d,]+\.\d{2})(.*)$`,
+);
+const MULTILINE_NOISE_RE =
+  /^(page\s+\d+\s+of\s+\d+|transactions?\s*\(continued\)|date\s+details\s+money out|account name:|e-\d+\s+s-\d+\s+i-\d+)/i;
+
+function parseMultilinePdfStatement(text: string): BasicParseResult | null {
+  const lines = text.split(/\r?\n/);
+  interface Hit {
+    dateRaw: string;
+    description: string;
+    signed: number;
+  }
+  const hits: Hit[] = [];
+  let current: Hit | null = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^total\s/i.test(line)) break; // end of the transaction table
+    if (MULTILINE_NOISE_RE.test(line)) continue;
+
+    const m = line.match(MULTILINE_START_RE);
+    if (m) {
+      const [, dateRaw, amountRaw, , descTail] = m;
+      const value = Number(amountRaw.replace(/,/g, ""));
+      if (!Number.isFinite(value)) continue;
+      current = { dateRaw, description: descTail.trim(), signed: value };
+      hits.push(current);
+    } else if (current) {
+      current.description = `${current.description} ${line}`.trim();
+    }
+  }
+  if (hits.length < 2) return null;
+
+  const { dayFirst } = detectDayFirst(hits.map((h) => h.dateRaw));
+  const transactions: ParsedRow[] = [];
+  for (const h of hits) {
+    const date = parseDate(h.dateRaw, dayFirst);
+    if (!date || h.signed === 0) continue;
+    transactions.push({
+      date,
+      description: h.description,
+      amount: Math.round(Math.abs(h.signed) * 100) / 100,
+      direction: h.signed < 0 ? "debit" : "credit",
+      merchant: null,
+      bank_category: null,
+    });
+  }
+  if (transactions.length < 2) return null;
+
+  const dates = transactions.map((t) => t.date).sort();
+  return {
+    transactions,
+    period_start: dates[0] ?? null,
+    period_end: dates[dates.length - 1] ?? null,
+    currency: null,
+    account_hint: null,
+    warnings: [],
+  };
+}
+
 /** Try to find a "Statement Period: X to Y" style line anywhere in the raw text. */
 function findStatedPeriod(text: string): { start: string | null; end: string | null } {
   const m = text.match(
-    /period[:\s]+(.+?)\s+(?:to|-|–|through)\s+(.+?)(?:[\r\n,]|$)/i,
+    /(?:statement\s+(?:from|period)|period)[:\s]+(.+?)\s+(?:to|-|–|through)\s+(.+?)(?:[\r\n,]|$)/i,
   );
   if (m) {
     const start = parseDate(m[1].trim(), true);
@@ -525,6 +607,9 @@ export function basicParse(text: string): BasicParseResult | null {
   }
   // Not a delimited table? Try the line-oriented shape (PDF statement text).
   if (!best) best = parseStatementLines(text);
+  // Still nothing? Try the multi-line columnar shape (date+amount+balance on
+  // one line, description wrapping onto the lines that follow).
+  if (!best) best = parseMultilinePdfStatement(text);
   if (!best) return null;
 
   const stated = findStatedPeriod(text);

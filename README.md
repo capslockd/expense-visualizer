@@ -22,12 +22,15 @@ created it. All data lives in your own Google Sheet — no database.
    flagged for review.
    - **No AI credits? Use Basic parsing.** The upload screen has a
      "Basic parsing (no AI)" option that reads CSV/Excel exports **and
-     text-based PDF statements** (e.g. NAB card statements) deterministically
-     and categorizes by a built-in merchant-keyword dictionary plus your
-     learned rules — everything else is flagged for you to categorize by
-     hand. If AI parsing fails because the Anthropic account has no credits,
-     the app falls back to Basic automatically. Scanned/photographed
-     statements still need AI (they have no text layer to read).
+     text-based PDF statements** deterministically and categorizes by a
+     built-in merchant-keyword dictionary plus your learned rules —
+     everything else is flagged for you to categorize by hand. Two PDF
+     table shapes are supported: single-line-per-transaction (e.g. NAB card
+     statements) and multi-line blocks where the description wraps onto
+     following lines (e.g. ING Orange Everyday statements). If AI parsing
+     fails because the Anthropic account has no credits, the app falls back
+     to Basic automatically. Scanned/photographed statements still need AI
+     (they have no text layer to read).
    - **Tuned for Australia.** The keyword dictionary covers Australian
      merchants (Woolworths, Coles, Bunnings, Opal/Myki, Linkt, AGL, Telstra,
      Medibank, …) plus global brands; ambiguous dates are read as DD/MM, and
