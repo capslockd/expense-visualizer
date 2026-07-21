@@ -5,7 +5,6 @@ import { Direction, Txn } from "@/lib/types";
 import {
   Period,
   formatMoney,
-  isExpenseCategory,
   largestPurchase,
   merchantNetInPeriod,
   periodDaySpan,
@@ -204,9 +203,7 @@ export default function DashboardInteractive({
     });
 
     // 6. Transactions
-    const periodTxns = txns.filter(
-      (t) => isExpenseCategory(t.category) && txnInPeriod(t, group, focus.key),
-    );
+    const periodTxns = txns.filter((t) => txnInPeriod(t, group, focus.key));
     const reversals = periodTxns.filter((t) => t.direction !== primary).length;
     out.push({
       label: "Transactions",
@@ -248,9 +245,9 @@ export default function DashboardInteractive({
     return txns.filter((t) => {
       const inCategory =
         drillCategory === OTHER_KEY
-          ? isExpenseCategory(t.category) && !topSet.has(t.category)
+          ? !topSet.has(t.category)
           : t.category === drillCategory;
-      if (!inCategory || !isExpenseCategory(t.category)) return false;
+      if (!inCategory) return false;
       if (drillPeriodKey === null) return true;
       return txnInPeriod(t, group, drillPeriodKey);
     });

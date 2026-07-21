@@ -5,6 +5,7 @@ import {
   addCategory,
   getCategories,
   updateCategoryBudget,
+  updateCategoryExcluded,
 } from "@/lib/sheets/repo";
 import { FORBIDDEN_CATEGORY_NAMES } from "@/lib/types";
 
@@ -12,8 +13,18 @@ function apiError(status: number, code: string, message: string) {
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
-function toResponseShape(c: { name: string; monthly_budget: number | null; type: string }) {
-  return { name: c.name, monthly_budget: c.monthly_budget, type: c.type };
+function toResponseShape(c: {
+  name: string;
+  monthly_budget: number | null;
+  type: string;
+  excluded: boolean;
+}) {
+  return {
+    name: c.name,
+    monthly_budget: c.monthly_budget,
+    type: c.type,
+    excluded: c.excluded,
+  };
 }
 
 export async function GET() {
@@ -66,12 +77,18 @@ export async function POST(req: Request) {
   );
 }
 
-const BudgetSchema = z.object({
-  name: z.string().trim().min(1),
-  monthly_budget: z.number().nonnegative().nullable(),
-});
+const PatchSchema = z
+  .object({
+    name: z.string().trim().min(1),
+    monthly_budget: z.number().nonnegative().nullable().optional(),
+    /** Hide this category from every dashboard entirely (card payments, ATM withdrawals, transfers, ...). */
+    excluded: z.boolean().optional(),
+  })
+  .refine((v) => v.monthly_budget !== undefined || v.excluded !== undefined, {
+    message: "monthly_budget or excluded is required.",
+  });
 
-/** Set or clear a category's per-cycle budget. */
+/** Update a category's per-cycle budget and/or whether it's excluded from every dashboard. */
 export async function PATCH(req: Request) {
   const userId = await getSessionUserId();
   if (!userId) return apiError(401, "UNAUTHORIZED", "Sign in first.");
@@ -82,15 +99,20 @@ export async function PATCH(req: Request) {
   } catch {
     return apiError(400, "INVALID_BODY", "Invalid JSON body.");
   }
-  const parsed = BudgetSchema.safeParse(body);
+  const parsed = PatchSchema.safeParse(body);
   if (!parsed.success) {
-    return apiError(400, "INVALID_INPUT", "name and monthly_budget (number or null) required.");
+    return apiError(400, "INVALID_INPUT", "name and (monthly_budget or excluded) required.");
   }
-  const budget =
-    parsed.data.monthly_budget === 0 ? null : parsed.data.monthly_budget;
-  const ok = await updateCategoryBudget(userId, parsed.data.name, budget);
-  if (!ok) {
-    return apiError(404, "NOT_FOUND", `Category "${parsed.data.name}" not found.`);
+  const { name, monthly_budget, excluded } = parsed.data;
+
+  if (monthly_budget !== undefined) {
+    const budget = monthly_budget === 0 ? null : monthly_budget;
+    const ok = await updateCategoryBudget(userId, name, budget);
+    if (!ok) return apiError(404, "NOT_FOUND", `Category "${name}" not found.`);
+  }
+  if (excluded !== undefined) {
+    const ok = await updateCategoryExcluded(userId, name, excluded);
+    if (!ok) return apiError(404, "NOT_FOUND", `Category "${name}" not found.`);
   }
   return NextResponse.json({ ok: true });
 }

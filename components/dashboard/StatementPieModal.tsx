@@ -6,7 +6,6 @@ import { Direction, Txn } from "@/lib/types";
 import {
   Period,
   formatMoney,
-  isExpenseCategory,
   netByCategory,
   txnInPeriod,
 } from "@/lib/analytics";
@@ -87,11 +86,9 @@ export default function StatementPieModal({
     return periodTxns
       .filter((t) =>
         selected === OTHER
-          ? isExpenseCategory(t.category) &&
-            !slices.items.some((s) => s.name === t.category)
+          ? !slices.items.some((s) => s.name === t.category)
           : t.category === selected,
       )
-      .filter((t) => isExpenseCategory(t.category))
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [selected, periodTxns, slices.items]);
 

@@ -59,7 +59,14 @@ export default async function IncomeDashboardPage({
   const incomeCategoryNames = new Set(
     categories.filter((c) => c.type === "income").map((c) => c.name),
   );
-  const { income: incomeTxns } = partitionByType(currencyTxns, incomeCategoryNames);
+  const excludedCategoryNames = new Set(
+    categories.filter((c) => c.excluded).map((c) => c.name),
+  );
+  const { income: incomeTxns } = partitionByType(
+    currencyTxns,
+    incomeCategoryNames,
+    excludedCategoryNames,
+  );
 
   if (incomeTxns.length === 0) {
     return (

@@ -53,16 +53,21 @@ export default async function IncomeVsExpensePage({
   const incomeCategoryNames = new Set(
     categories.filter((c) => c.type === "income").map((c) => c.name),
   );
+  const excludedCategoryNames = new Set(
+    categories.filter((c) => c.excluded).map((c) => c.name),
+  );
   const { expense: expenseTxns, income: incomeTxns } = partitionByType(
     currencyTxns,
     incomeCategoryNames,
+    excludedCategoryNames,
   );
 
-  // Canonical period list (keys/labels/order) — from every transaction
-  // regardless of type, so a period with only income or only expenses still
-  // gets its own column.
+  // Canonical period list (keys/labels/order) — from every non-excluded
+  // transaction regardless of type, so a period with only income or only
+  // expenses still gets its own column.
+  const trackedTxns = [...expenseTxns, ...incomeTxns];
   const allPeriods =
-    group === "month" ? byMonth(currencyTxns) : byStatement(currencyTxns, statements);
+    group === "month" ? byMonth(trackedTxns) : byStatement(trackedTxns, statements);
   const periods = allPeriods.slice(-Math.min(show, MAX_PERIODS));
 
   const expensePeriods =

@@ -203,6 +203,9 @@ const KEYWORDS: Array<[string, string] | [string, string, Direction]> = [
   ["FUNDS TRANSFER", "Payments & Transfers"],
   ["OSKO", "Payments & Transfers"],
   ["PAYID", "Payments & Transfers"],
+  // Cash out and card-issuer BPAY billers — money movement, not a purchase.
+  ["ATM WITHDRAWAL", "Payments & Transfers"],
+  ["NAB CARDS", "Payments & Transfers"], // BPAY biller for a NAB credit card bill
 ];
 
 /**

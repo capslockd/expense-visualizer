@@ -57,6 +57,8 @@ export interface Category {
   type: CategoryType;
   monthly_budget: number | null;
   created_at: string;
+  /** Hidden from every dashboard entirely — for card payments, ATM withdrawals, internal transfers, etc. that aren't real income or expense. */
+  excluded: boolean;
 }
 
 /** A transaction as returned by /api/extract, before the user has reviewed it. */
@@ -140,38 +142,38 @@ export const FORBIDDEN_CATEGORY_NAMES = [
 export interface DefaultCategory {
   name: string;
   type: CategoryType;
+  excluded: boolean;
 }
 
 /**
  * Seeded per-user on first use. Order is the seed/dropdown order — expense
- * categories first, then income. "Payments & Transfers" is typed "expense"
- * as a don't-care default: NON_EXPENSE_CATEGORIES excludes it from every
- * analytics path before its type is ever consulted.
+ * categories first, then income. "Payments & Transfers" is excluded by
+ * default (card payments and internal transfers aren't real spending or
+ * income) — its `type` is a don't-care default, never consulted once a
+ * category is excluded. Exclusion is a toggle: the user can flip any
+ * category (including this one) via Manage categories.
  */
 export const DEFAULT_CATEGORIES: DefaultCategory[] = [
-  { name: "Groceries", type: "expense" },
-  { name: "Dining", type: "expense" },
-  { name: "Transport", type: "expense" },
-  { name: "Utilities", type: "expense" },
-  { name: "Entertainment", type: "expense" },
-  { name: "Shopping", type: "expense" },
-  { name: "Health", type: "expense" },
-  { name: "Travel", type: "expense" },
-  { name: "Subscriptions", type: "expense" },
-  { name: "Housing", type: "expense" },
-  { name: "Insurance", type: "expense" },
-  { name: "Education", type: "expense" },
-  { name: "Fees & Charges", type: "expense" },
-  { name: "Payments & Transfers", type: "expense" },
-  { name: "Salary", type: "income" },
-  { name: "Business", type: "income" },
-  { name: "eBay", type: "income" },
-  { name: "Website", type: "income" },
-  { name: "Government Benefits", type: "income" },
-  { name: "Interest & Cashback", type: "income" },
-  { name: "Tax Refunds", type: "income" },
-  { name: "Income & Refunds", type: "income" },
+  { name: "Groceries", type: "expense", excluded: false },
+  { name: "Dining", type: "expense", excluded: false },
+  { name: "Transport", type: "expense", excluded: false },
+  { name: "Utilities", type: "expense", excluded: false },
+  { name: "Entertainment", type: "expense", excluded: false },
+  { name: "Shopping", type: "expense", excluded: false },
+  { name: "Health", type: "expense", excluded: false },
+  { name: "Travel", type: "expense", excluded: false },
+  { name: "Subscriptions", type: "expense", excluded: false },
+  { name: "Housing", type: "expense", excluded: false },
+  { name: "Insurance", type: "expense", excluded: false },
+  { name: "Education", type: "expense", excluded: false },
+  { name: "Fees & Charges", type: "expense", excluded: false },
+  { name: "Payments & Transfers", type: "expense", excluded: true },
+  { name: "Salary", type: "income", excluded: false },
+  { name: "Business", type: "income", excluded: false },
+  { name: "eBay", type: "income", excluded: false },
+  { name: "Website", type: "income", excluded: false },
+  { name: "Government Benefits", type: "income", excluded: false },
+  { name: "Interest & Cashback", type: "income", excluded: false },
+  { name: "Tax Refunds", type: "income", excluded: false },
+  { name: "Income & Refunds", type: "income", excluded: false },
 ];
-
-/** Categories excluded from analytics entirely (not income, not expense). */
-export const NON_EXPENSE_CATEGORIES = ["Payments & Transfers"];

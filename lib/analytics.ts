@@ -1,39 +1,33 @@
-import { Direction, NON_EXPENSE_CATEGORIES, Statement, Txn } from "@/lib/types";
+import { Direction, Statement, Txn } from "@/lib/types";
 
 /**
  * Expense semantics (used by every aggregate in this file):
- * - "Payments & Transfers" is excluded entirely (`isExpenseCategory` below).
- * - Debits in any other category are expenses.
- * - Credits in an expense category (refunds) SUBTRACT from that category.
- *
- * Income is a separate concern, handled upstream of this file: callers use
- * `partitionByType()` to split a user's transactions into expense/income
- * slices (by their category's `type`, which is user/sheet data this module
- * never sees) BEFORE calling any function below — so every function here
- * only ever needs to know about transfers, not income. Call `byMonth`/
- * `byStatement`/`netByCategory`/etc. once per slice to get parallel expense
- * and income aggregates.
+ * - Debits in a category are expenses; credits (refunds) SUBTRACT from it.
+ * - Exclusion (card payments, ATM withdrawals, internal transfers, ...) and
+ *   income are both handled entirely upstream of this file: callers use
+ *   `partitionByType()` to split a user's transactions into expense/income
+ *   slices — excluded-category transactions are dropped outright, the rest
+ *   split by the category's `type` (user/sheet data this module never sees)
+ *   — BEFORE calling anything below. Every function here can assume its
+ *   input is already clean. Call `byMonth`/`byStatement`/`netByCategory`/etc.
+ *   once per slice to get parallel expense and income aggregates.
  */
 
-/** True unless this is a transfer category (Payments & Transfers). */
-export function isExpenseCategory(category: string): boolean {
-  return !NON_EXPENSE_CATEGORIES.includes(category);
-}
-
 /**
- * Splits transactions into expense and income slices by their category's
- * type, excluding transfer categories from both. `incomeCategoryNames` is
- * the caller's set of category names currently typed "income" (from
- * `getCategories()`) — this file has no notion of category type itself.
+ * Splits transactions into expense and income slices, dropping excluded
+ * categories entirely. `incomeCategoryNames`/`excludedCategoryNames` are the
+ * caller's live sets from `getCategories()` — this file has no notion of
+ * category type or exclusion itself; both are user/sheet-driven.
  */
 export function partitionByType(
   txns: Txn[],
   incomeCategoryNames: ReadonlySet<string>,
+  excludedCategoryNames: ReadonlySet<string>,
 ): { expense: Txn[]; income: Txn[] } {
   const expense: Txn[] = [];
   const income: Txn[] = [];
   for (const t of txns) {
-    if (NON_EXPENSE_CATEGORIES.includes(t.category)) continue;
+    if (excludedCategoryNames.has(t.category)) continue;
     if (incomeCategoryNames.has(t.category)) income.push(t);
     else expense.push(t);
   }
@@ -62,7 +56,6 @@ export function netByCategory(
 ): Array<{ category: string; total: number }> {
   const map = new Map<string, number>();
   for (const t of txns) {
-    if (!isExpenseCategory(t.category)) continue;
     map.set(t.category, (map.get(t.category) ?? 0) + signed(t, primary));
   }
   return [...map.entries()]
@@ -82,7 +75,6 @@ export function topMerchants(
 ): Array<{ merchant: string; total: number; count: number }> {
   const map = new Map<string, { total: number; count: number }>();
   for (const t of txns) {
-    if (!isExpenseCategory(t.category)) continue;
     const cur = map.get(t.merchant) ?? { total: 0, count: 0 };
     cur.total += signed(t);
     cur.count += 1;
@@ -120,7 +112,6 @@ function rollup(buckets: Map<string, { label: string; cats: Map<string, number> 
 export function byMonth(txns: Txn[], primary: Direction = "debit"): Period[] {
   const buckets = new Map<string, { label: string; cats: Map<string, number> }>();
   for (const t of txns) {
-    if (!isExpenseCategory(t.category)) continue;
     const month = t.date.slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(month)) continue;
     const bucket = buckets.get(month) ?? { label: monthLabel(month), cats: new Map() };
@@ -148,7 +139,6 @@ export function byStatement(
     buckets.set(s.id, { label: statementLabel(s), cats: new Map() });
   }
   for (const t of txns) {
-    if (!isExpenseCategory(t.category)) continue;
     const bucket = buckets.get(t.statement_id);
     if (!bucket) continue;
     bucket.cats.set(t.category, (bucket.cats.get(t.category) ?? 0) + signed(t, primary));
@@ -187,7 +177,6 @@ export function topMerchantPerPeriod(
   for (const p of periods) {
     const map = new Map<string, number>();
     for (const t of txns) {
-      if (!isExpenseCategory(t.category)) continue;
       if (!txnInPeriod(t, group, p.key)) continue;
       map.set(t.merchant, (map.get(t.merchant) ?? 0) + signed(t, primary));
     }
@@ -209,7 +198,6 @@ export function topMerchantPerCategory(
 ): TopMerchantEntry[] {
   const byCat = new Map<string, Map<string, number>>();
   for (const t of txns) {
-    if (!isExpenseCategory(t.category)) continue;
     const m = byCat.get(t.category) ?? new Map<string, number>();
     m.set(t.merchant, (m.get(t.merchant) ?? 0) + signed(t, primary));
     byCat.set(t.category, m);
@@ -238,7 +226,7 @@ export function cumulativeSpend(
   primary: Direction = "debit",
 ): Array<{ day: number; cum: number }> {
   const inPeriod = txns
-    .filter((t) => isExpenseCategory(t.category) && txnInPeriod(t, group, periodKey))
+    .filter((t) => txnInPeriod(t, group, periodKey))
     .sort((a, b) => a.date.localeCompare(b.date));
   if (inPeriod.length === 0) return [];
   const firstDate = inPeriod[0].date;
@@ -296,7 +284,6 @@ export function topSpendDays(
 ): Array<{ date: string; total: number; topMerchant: string; count: number }> {
   const byDate = new Map<string, { total: number; count: number; merchants: Map<string, number> }>();
   for (const t of txns) {
-    if (!isExpenseCategory(t.category)) continue;
     const d = byDate.get(t.date) ?? { total: 0, count: 0, merchants: new Map() };
     d.total += signed(t, primary);
     d.count += 1;
@@ -329,7 +316,6 @@ export function merchantNetInPeriod(
 ): Map<string, number> {
   const map = new Map<string, number>();
   for (const t of txns) {
-    if (!isExpenseCategory(t.category)) continue;
     if (!txnInPeriod(t, group, periodKey)) continue;
     map.set(t.merchant, round2((map.get(t.merchant) ?? 0) + signed(t, primary)));
   }
@@ -363,7 +349,7 @@ export function largestPurchase(
 ): Txn | null {
   let best: Txn | null = null;
   for (const t of txns) {
-    if (t.direction !== primary || !isExpenseCategory(t.category)) continue;
+    if (t.direction !== primary) continue;
     if (!txnInPeriod(t, group, periodKey)) continue;
     if (!best || t.amount > best.amount) best = t;
   }
@@ -379,7 +365,6 @@ export function periodDaySpan(
   let min: string | null = null;
   let max: string | null = null;
   for (const t of txns) {
-    if (!isExpenseCategory(t.category)) continue;
     if (!txnInPeriod(t, group, periodKey)) continue;
     if (!min || t.date < min) min = t.date;
     if (!max || t.date > max) max = t.date;
@@ -410,7 +395,6 @@ export function byWeekday(
   const totals = new Array(7).fill(0);
   const counts = new Array(7).fill(0);
   for (const t of txns) {
-    if (!isExpenseCategory(t.category)) continue;
     const parsed = new Date(`${t.date}T00:00:00Z`);
     if (Number.isNaN(parsed.getTime())) continue;
     const idx = (parsed.getUTCDay() + 6) % 7; // Sunday(0) → 6, Monday(1) → 0

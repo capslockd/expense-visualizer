@@ -17,6 +17,7 @@ import DashboardSections from "@/components/dashboard/DashboardSections";
 import DashboardTabs from "@/components/dashboard/DashboardTabs";
 import DashboardControls from "@/components/dashboard/DashboardControls";
 import BudgetPanel from "@/components/dashboard/BudgetPanel";
+import ManageCategoriesPanel from "@/components/dashboard/ManageCategoriesPanel";
 import {
   DeleteAllStatementsButton,
   DeleteStatementIcon,
@@ -64,11 +65,19 @@ export default async function DashboardPage({
   const currencyTxns = allTxns.filter((t) => t.currency === currency);
 
   // This dashboard only ever shows expense-typed categories — income lives
-  // on its own dashboard, and transfers are excluded entirely.
+  // on its own dashboard, and excluded categories (card payments, ATM
+  // withdrawals, internal transfers, ...) never appear anywhere.
   const incomeCategoryNames = new Set(
     categories.filter((c) => c.type === "income").map((c) => c.name),
   );
-  const { expense: expenseTxns } = partitionByType(currencyTxns, incomeCategoryNames);
+  const excludedCategoryNames = new Set(
+    categories.filter((c) => c.excluded).map((c) => c.name),
+  );
+  const { expense: expenseTxns } = partitionByType(
+    currencyTxns,
+    incomeCategoryNames,
+    excludedCategoryNames,
+  );
 
   const allPeriods =
     group === "month" ? byMonth(expenseTxns) : byStatement(expenseTxns, statements);
@@ -203,6 +212,22 @@ export default async function DashboardPage({
           </div>
         </section>
       </div>
+
+      <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
+        <h2 className="text-sm font-semibold text-zinc-900">Excluded categories</h2>
+        <p className="mb-2 text-xs text-zinc-500">
+          Card payments, ATM withdrawals, internal transfers, and anything
+          else that isn&apos;t real spending or income — excluded categories
+          are hidden from Expense, Income, and Income vs Expenditure entirely.
+        </p>
+        <ManageCategoriesPanel
+          categories={categories.map((c) => ({
+            name: c.name,
+            type: c.type,
+            excluded: c.excluded,
+          }))}
+        />
+      </section>
     </main>
   );
 }

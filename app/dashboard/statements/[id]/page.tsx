@@ -46,9 +46,13 @@ export default async function StatementPage({
   const incomeCategoryNames = new Set(
     categories.filter((c) => c.type === "income").map((c) => c.name),
   );
+  const excludedCategoryNames = new Set(
+    categories.filter((c) => c.excluded).map((c) => c.name),
+  );
   const { expense: expenseTxns, income: incomeTxns } = partitionByType(
     txns,
     incomeCategoryNames,
+    excludedCategoryNames,
   );
 
   const breakdown = netByCategory(expenseTxns);

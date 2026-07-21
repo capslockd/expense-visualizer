@@ -32,7 +32,7 @@ export const TABS: Record<string, string[]> = {
     "categorized_by",
   ],
   CategoryRules: ["user_id", "merchant_normalized", "category", "created_at"],
-  Categories: ["user_id", "name", "monthly_budget", "created_at", "type"],
+  Categories: ["user_id", "name", "monthly_budget", "created_at", "type", "excluded"],
 };
 
 let setupPromise: Promise<void> | null = null;

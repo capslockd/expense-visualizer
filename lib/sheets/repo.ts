@@ -211,9 +211,15 @@ function inferDefaultType(name: string): CategoryType {
   return name === "Income & Refunds" ? "income" : "expense";
 }
 
+/** Same rationale as `inferDefaultType`: only the one category this app has ever hardcoded as excluded infers `true` on migration; everything else defaults to included. */
+function inferDefaultExcluded(name: string): boolean {
+  return name === "Payments & Transfers";
+}
+
 function toCategory(cells: Record<string, Cell>): Category {
   const budget = cells.monthly_budget;
   const storedType = asString(cells.type);
+  const storedExcluded = asString(cells.excluded);
   return {
     user_id: asString(cells.user_id),
     name: asString(cells.name),
@@ -223,6 +229,9 @@ function toCategory(cells: Record<string, Cell>): Category {
         ? null
         : asNumber(budget),
     created_at: asString(cells.created_at),
+    excluded: storedExcluded
+      ? storedExcluded.toUpperCase() === "TRUE"
+      : inferDefaultExcluded(asString(cells.name)),
   };
 }
 
@@ -230,13 +239,23 @@ export async function getCategories(userId: string): Promise<Category[]> {
   const rows = await readTab("Categories");
   const mineRows = rows.filter((r) => asString(r.cells.user_id) === userId);
   if (mineRows.length > 0) {
-    // Self-heal rows written before the `type` column existed.
-    const backfills = mineRows
-      .filter((r) => !asString(r.cells.type))
-      .map((r) => ({
-        range: `Categories!E${r.rowNumber}`,
-        values: [[inferDefaultType(asString(r.cells.name))]],
-      }));
+    // Self-heal rows written before the `type`/`excluded` columns existed.
+    const backfills: { range: string; values: string[][] }[] = [];
+    for (const r of mineRows) {
+      const name = asString(r.cells.name);
+      if (!asString(r.cells.type)) {
+        backfills.push({
+          range: `Categories!E${r.rowNumber}`,
+          values: [[inferDefaultType(name)]],
+        });
+      }
+      if (!asString(r.cells.excluded)) {
+        backfills.push({
+          range: `Categories!F${r.rowNumber}`,
+          values: [[inferDefaultExcluded(name) ? "TRUE" : "FALSE"]],
+        });
+      }
+    }
     if (backfills.length > 0) {
       await getSheets().spreadsheets.values.batchUpdate({
         spreadsheetId: getSpreadsheetId(),
@@ -259,7 +278,14 @@ export async function getCategories(userId: string): Promise<Category[]> {
     if (missing.length > 0) {
       await appendRows(
         "Categories",
-        missing.map((c) => [userId, c.name, "", now, c.type]),
+        missing.map((c) => [
+          userId,
+          c.name,
+          "",
+          now,
+          c.type,
+          c.excluded ? "TRUE" : "FALSE",
+        ]),
       );
     }
 
@@ -271,6 +297,7 @@ export async function getCategories(userId: string): Promise<Category[]> {
         type: c.type,
         monthly_budget: null,
         created_at: now,
+        excluded: c.excluded,
       })),
     ];
   }
@@ -279,7 +306,14 @@ export async function getCategories(userId: string): Promise<Category[]> {
   const now = new Date().toISOString();
   await appendRows(
     "Categories",
-    DEFAULT_CATEGORIES.map((c) => [userId, c.name, "", now, c.type]),
+    DEFAULT_CATEGORIES.map((c) => [
+      userId,
+      c.name,
+      "",
+      now,
+      c.type,
+      c.excluded ? "TRUE" : "FALSE",
+    ]),
   );
   return DEFAULT_CATEGORIES.map((c) => ({
     user_id: userId,
@@ -287,6 +321,7 @@ export async function getCategories(userId: string): Promise<Category[]> {
     type: c.type,
     monthly_budget: null,
     created_at: now,
+    excluded: c.excluded,
   }));
 }
 
@@ -295,8 +330,9 @@ export async function addCategory(
   name: string,
   type: CategoryType,
 ): Promise<void> {
+  // New categories are never excluded by default — the user just asked to track this one.
   await appendRows("Categories", [
-    [userId, name, "", new Date().toISOString(), type],
+    [userId, name, "", new Date().toISOString(), type, "FALSE"],
   ]);
 }
 
@@ -318,6 +354,28 @@ export async function updateCategoryBudget(
     range: `Categories!C${hit.rowNumber}`,
     valueInputOption: "RAW",
     requestBody: { values: [[budget === null ? "" : budget]] },
+  });
+  return true;
+}
+
+/** Toggle whether a category is hidden from every dashboard entirely (card payments, ATM withdrawals, internal transfers, etc.). */
+export async function updateCategoryExcluded(
+  userId: string,
+  name: string,
+  excluded: boolean,
+): Promise<boolean> {
+  const rows = await readTab("Categories");
+  const hit = rows.find(
+    (r) =>
+      asString(r.cells.user_id) === userId &&
+      asString(r.cells.name).toLowerCase() === name.toLowerCase(),
+  );
+  if (!hit) return false;
+  await getSheets().spreadsheets.values.update({
+    spreadsheetId: getSpreadsheetId(),
+    range: `Categories!F${hit.rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[excluded ? "TRUE" : "FALSE"]] },
   });
   return true;
 }
