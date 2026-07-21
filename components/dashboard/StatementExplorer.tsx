@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Txn } from "@/lib/types";
+import { CategoryType, Txn } from "@/lib/types";
 import { formatMoney } from "@/lib/analytics";
 import CategoryBreakdownChart from "./CategoryBreakdownChart";
 import EditableTxnTable from "./EditableTxnTable";
@@ -20,7 +20,7 @@ export default function StatementExplorer({
   breakdown: Array<{ category: string; total: number }>;
   txns: Txn[];
   currency: string;
-  categories: string[];
+  categories: { name: string; type: CategoryType }[];
 }) {
   const [selected, setSelected] = useState<string | null>(null);
 

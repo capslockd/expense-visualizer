@@ -6,6 +6,7 @@ import {
   Category,
   CategoryRule,
   CategorizedBy,
+  CategoryType,
   DEFAULT_CATEGORIES,
   Direction,
   Statement,
@@ -198,11 +199,25 @@ export async function updateUserAuth(
 // Categories (per user, lazily seeded)
 // ---------------------------------------------------------------------------
 
+/**
+ * Pre-migration rows have no `type` cell. Only "Income & Refunds" is safely
+ * inferrable as income — every other blank cell defaults to "expense", even
+ * if the name happens to match one of the new default income categories
+ * (e.g. a pre-existing custom "Business" expense category must NOT be
+ * silently reclassified as income just because "Business" is now also a
+ * default income category name for brand-new users).
+ */
+function inferDefaultType(name: string): CategoryType {
+  return name === "Income & Refunds" ? "income" : "expense";
+}
+
 function toCategory(cells: Record<string, Cell>): Category {
   const budget = cells.monthly_budget;
+  const storedType = asString(cells.type);
   return {
     user_id: asString(cells.user_id),
     name: asString(cells.name),
+    type: (storedType || inferDefaultType(asString(cells.name))) as CategoryType,
     monthly_budget:
       budget === "" || budget === null || budget === undefined
         ? null
@@ -213,27 +228,76 @@ function toCategory(cells: Record<string, Cell>): Category {
 
 export async function getCategories(userId: string): Promise<Category[]> {
   const rows = await readTab("Categories");
-  const mine = rows
-    .filter((r) => asString(r.cells.user_id) === userId)
-    .map((r) => toCategory(r.cells));
-  if (mine.length > 0) return mine;
+  const mineRows = rows.filter((r) => asString(r.cells.user_id) === userId);
+  if (mineRows.length > 0) {
+    // Self-heal rows written before the `type` column existed.
+    const backfills = mineRows
+      .filter((r) => !asString(r.cells.type))
+      .map((r) => ({
+        range: `Categories!E${r.rowNumber}`,
+        values: [[inferDefaultType(asString(r.cells.name))]],
+      }));
+    if (backfills.length > 0) {
+      await getSheets().spreadsheets.values.batchUpdate({
+        spreadsheetId: getSpreadsheetId(),
+        requestBody: { valueInputOption: "RAW", data: backfills },
+      });
+    }
+
+    // Add any default category this account doesn't already have BY NAME
+    // (case-insensitive) — e.g. an existing account picking up the new
+    // income categories introduced after it first signed up. Never touches
+    // or duplicates a category that already exists, even one whose name
+    // collides with a default (that existing category wins).
+    const existingNames = new Set(
+      mineRows.map((r) => asString(r.cells.name).toLowerCase()),
+    );
+    const missing = DEFAULT_CATEGORIES.filter(
+      (c) => !existingNames.has(c.name.toLowerCase()),
+    );
+    const now = new Date().toISOString();
+    if (missing.length > 0) {
+      await appendRows(
+        "Categories",
+        missing.map((c) => [userId, c.name, "", now, c.type]),
+      );
+    }
+
+    return [
+      ...mineRows.map((r) => toCategory(r.cells)),
+      ...missing.map((c) => ({
+        user_id: userId,
+        name: c.name,
+        type: c.type,
+        monthly_budget: null,
+        created_at: now,
+      })),
+    ];
+  }
 
   // First use: seed defaults for this user.
   const now = new Date().toISOString();
   await appendRows(
     "Categories",
-    DEFAULT_CATEGORIES.map((name) => [userId, name, "", now]),
+    DEFAULT_CATEGORIES.map((c) => [userId, c.name, "", now, c.type]),
   );
-  return DEFAULT_CATEGORIES.map((name) => ({
+  return DEFAULT_CATEGORIES.map((c) => ({
     user_id: userId,
-    name,
+    name: c.name,
+    type: c.type,
     monthly_budget: null,
     created_at: now,
   }));
 }
 
-export async function addCategory(userId: string, name: string): Promise<void> {
-  await appendRows("Categories", [[userId, name, "", new Date().toISOString()]]);
+export async function addCategory(
+  userId: string,
+  name: string,
+  type: CategoryType,
+): Promise<void> {
+  await appendRows("Categories", [
+    [userId, name, "", new Date().toISOString(), type],
+  ]);
 }
 
 /** Set (or clear) a category's per-cycle budget. */

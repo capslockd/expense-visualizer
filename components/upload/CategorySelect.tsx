@@ -1,9 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { CategoryType } from "@/lib/types";
 
 const ADD_NEW = "__add_new__";
 
+/**
+ * Category options are grouped by type (Expense/Income) — picking one from
+ * the right group is how a transaction gets classified as income or
+ * expense; there's no separate income/expense flag to fall out of sync.
+ */
 export default function CategorySelect({
   value,
   categories,
@@ -12,13 +18,14 @@ export default function CategorySelect({
   onAddCategory,
 }: {
   value: string | null;
-  categories: string[];
+  categories: { name: string; type: CategoryType }[];
   needsReview: boolean;
   onChange: (category: string) => void;
-  onAddCategory: (name: string) => Promise<string | null>; // returns error message or null
+  onAddCategory: (name: string, type: CategoryType) => Promise<string | null>; // returns error message or null
 }) {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState<CategoryType>("expense");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -27,7 +34,7 @@ export default function CategorySelect({
     if (!name) return;
     setBusy(true);
     setError(null);
-    const err = await onAddCategory(name);
+    const err = await onAddCategory(name, newType);
     setBusy(false);
     if (err) {
       setError(err);
@@ -75,10 +82,33 @@ export default function CategorySelect({
             ✕
           </button>
         </div>
+        <div className="flex items-center gap-3 text-xs text-zinc-500">
+          <label className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="new-category-type"
+              checked={newType === "expense"}
+              onChange={() => setNewType("expense")}
+            />
+            Expense
+          </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="new-category-type"
+              checked={newType === "income"}
+              onChange={() => setNewType("income")}
+            />
+            Income
+          </label>
+        </div>
         {error && <p className="max-w-48 text-xs text-red-600">{error}</p>}
       </div>
     );
   }
+
+  const expenseCategories = categories.filter((c) => c.type === "expense");
+  const incomeCategories = categories.filter((c) => c.type === "income");
 
   return (
     <select
@@ -99,11 +129,20 @@ export default function CategorySelect({
       <option value="" disabled>
         Choose category…
       </option>
-      {categories.map((c) => (
-        <option key={c} value={c}>
-          {c}
-        </option>
-      ))}
+      <optgroup label="Expense">
+        {expenseCategories.map((c) => (
+          <option key={c.name} value={c.name}>
+            {c.name}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label="Income">
+        {incomeCategories.map((c) => (
+          <option key={c.name} value={c.name}>
+            {c.name}
+          </option>
+        ))}
+      </optgroup>
       <option value={ADD_NEW}>＋ Add new category…</option>
     </select>
   );

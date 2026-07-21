@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { Txn } from "@/lib/types";
+import { Direction, Txn } from "@/lib/types";
 import {
   Period,
   formatMoney,
@@ -26,6 +26,8 @@ export default function StatementPieModal({
   currency,
   group,
   onClose,
+  primary = "debit",
+  netNoun = "net spend",
 }: {
   period: Period;
   txns: Txn[];
@@ -33,6 +35,9 @@ export default function StatementPieModal({
   currency: string;
   group: "statement" | "month";
   onClose: () => void;
+  /** The "normal" direction for this slice — a charge (debit) for expense, a deposit (credit) for income. */
+  primary?: Direction;
+  netNoun?: string;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -54,7 +59,7 @@ export default function StatementPieModal({
   // Slices: every category with positive net renders individually; only
   // categories beyond the 16 color slots fold into gray (rare guard).
   const slices = useMemo(() => {
-    const breakdown = netByCategory(periodTxns).filter((c) => c.total > 0);
+    const breakdown = netByCategory(periodTxns, primary).filter((c) => c.total > 0);
     const total = breakdown.reduce((s, c) => s + c.total, 0);
     const main: Array<{ name: string; value: number; color: string; pct: number }> = [];
     let other = 0;
@@ -75,7 +80,7 @@ export default function StatementPieModal({
       });
     }
     return { items: main, total: Math.round(total * 100) / 100 };
-  }, [periodTxns, slots]);
+  }, [periodTxns, slots, primary]);
 
   const sliceTxns = useMemo(() => {
     if (!selected) return [];
@@ -94,11 +99,11 @@ export default function StatementPieModal({
     () =>
       Math.round(
         sliceTxns.reduce(
-          (s, t) => s + (t.direction === "debit" ? t.amount : -t.amount),
+          (s, t) => s + (t.direction === primary ? t.amount : -t.amount),
           0,
         ) * 100,
       ) / 100,
-    [sliceTxns],
+    [sliceTxns, primary],
   );
 
   return (
@@ -118,7 +123,7 @@ export default function StatementPieModal({
           <div>
             <h2 className="text-base font-semibold text-zinc-900">{period.label}</h2>
             <p className="text-xs text-zinc-500">
-              {formatMoney(slices.total, currency)} net spend · click a slice to
+              {formatMoney(slices.total, currency)} {netNoun} · click a slice to
               see its transactions
             </p>
           </div>

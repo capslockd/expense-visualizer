@@ -13,30 +13,37 @@ import {
 } from "recharts";
 import { chart } from "./chartTheme";
 import { formatMoney } from "@/lib/analytics";
-import { Txn } from "@/lib/types";
+import { Direction, Txn } from "@/lib/types";
 
 const MAX_ROWS = 20;
 
 /**
- * Category drill-down: each ORDER is its own bar — nothing is aggregated, so
- * every value is the exact amount of one transaction in the selected
- * statement/month. Refunds render as green bars to the left of zero.
+ * Category drill-down: each transaction is its own bar — nothing is
+ * aggregated, so every value is the exact amount of one transaction in the
+ * selected statement/month. The reversal direction (a refund for expense, a
+ * correction for income) renders to the left of zero in a distinct color.
  */
 export default function CategoryOrdersChart({
   txns,
   currency,
   color,
+  primary = "debit",
+  reversalNoun = "refund",
 }: {
   txns: Txn[];
   currency: string;
   color: string;
+  /** The "normal" direction for this category's slice — a charge (debit) for expense, a deposit (credit) for income. */
+  primary?: Direction;
+  reversalNoun?: string;
 }) {
+  const reversalColor = primary === "credit" ? chart.critical : "#0ca30c";
   const rows = [...txns]
     .map((t) => ({
       id: t.id,
       merchant: t.merchant,
       date: t.date,
-      value: t.direction === "debit" ? t.amount : -t.amount,
+      value: t.direction === primary ? t.amount : -t.amount,
       direction: t.direction,
       label: `${t.merchant} · ${t.date.slice(5)}`,
     }))
@@ -52,7 +59,7 @@ export default function CategoryOrdersChart({
   }
   const height = Math.max(rows.length * 32 + 16, 100);
   const hidden = txns.length - rows.length;
-  const hasCredit = rows.some((r) => r.value < 0);
+  const hasReversal = rows.some((r) => r.value < 0);
 
   return (
     <div>
@@ -73,20 +80,21 @@ export default function CategoryOrdersChart({
             tick={{ fill: chart.inkSecondary, fontSize: 11 }}
             tickFormatter={(v: string) => (v.length > 24 ? `${v.slice(0, 23)}…` : v)}
           />
-          {hasCredit && <ReferenceLine x={0} stroke={chart.baseline} />}
+          {hasReversal && <ReferenceLine x={0} stroke={chart.baseline} />}
           <Tooltip
             cursor={{ fill: "rgba(11,11,11,0.04)" }}
             content={({ active, payload }) => {
               if (!active || !payload?.length) return null;
               const r = payload[0].payload as (typeof rows)[number];
+              const isReversal = r.direction !== primary;
               return (
                 <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs shadow-sm">
                   <p className="font-medium text-zinc-900">{r.merchant}</p>
                   <p className="text-zinc-600">{r.date}</p>
                   <p
-                    className={`tabular-nums ${r.direction === "credit" ? "text-emerald-700" : "text-zinc-900"}`}
+                    className={`tabular-nums ${isReversal ? "text-emerald-700" : "text-zinc-900"}`}
                   >
-                    {r.direction === "credit" ? "refund −" : ""}
+                    {isReversal ? `${reversalNoun} −` : ""}
                     {formatMoney(Math.abs(r.value), currency)}
                   </p>
                 </div>
@@ -95,7 +103,7 @@ export default function CategoryOrdersChart({
           />
           <Bar dataKey="value" radius={[0, 4, 4, 0]} isAnimationActive={false}>
             {rows.map((r) => (
-              <Cell key={r.id} fill={r.direction === "credit" ? "#0ca30c" : color} />
+              <Cell key={r.id} fill={r.direction !== primary ? reversalColor : color} />
             ))}
             <LabelList
               dataKey="value"

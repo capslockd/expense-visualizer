@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Txn } from "@/lib/types";
+import { CategoryType, Txn } from "@/lib/types";
 import { formatMoney } from "@/lib/analytics";
 import CategorySelect from "@/components/upload/CategorySelect";
 
@@ -15,7 +15,7 @@ export default function EditableTxnTable({
   categories: initialCategories,
 }: {
   txns: Txn[];
-  categories: string[];
+  categories: { name: string; type: CategoryType }[];
 }) {
   const router = useRouter();
   const [categories, setCategories] = useState(initialCategories);
@@ -53,11 +53,14 @@ export default function EditableTxnTable({
     }
   }
 
-  async function handleAddCategory(name: string): Promise<string | null> {
+  async function handleAddCategory(
+    name: string,
+    type: CategoryType,
+  ): Promise<string | null> {
     const res = await fetch("/api/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, type }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) return body?.error?.message ?? "Could not add category.";

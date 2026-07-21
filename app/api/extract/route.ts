@@ -142,7 +142,7 @@ export async function POST(req: Request) {
       },
       transactions,
       warnings: parsed.warnings,
-      categories: categories.map((c) => c.name),
+      categories: categories.map((c) => ({ name: c.name, type: c.type })),
     };
     return NextResponse.json(body);
   } catch (err) {

@@ -1,60 +1,78 @@
-import {
-  MONEY_IN_CATEGORY,
-  NON_EXPENSE_CATEGORIES,
-  Statement,
-  Txn,
-} from "@/lib/types";
+import { Direction, NON_EXPENSE_CATEGORIES, Statement, Txn } from "@/lib/types";
 
 /**
- * Expense semantics (used by every aggregate):
- * - "Payments & Transfers" is excluded from analytics entirely.
+ * Expense semantics (used by every aggregate in this file):
+ * - "Payments & Transfers" is excluded entirely (`isExpenseCategory` below).
  * - Debits in any other category are expenses.
  * - Credits in an expense category (refunds) SUBTRACT from that category.
- * - "Income & Refunds" is money-in: excluded from expense charts, shown as a tile.
+ *
+ * Income is a separate concern, handled upstream of this file: callers use
+ * `partitionByType()` to split a user's transactions into expense/income
+ * slices (by their category's `type`, which is user/sheet data this module
+ * never sees) BEFORE calling any function below — so every function here
+ * only ever needs to know about transfers, not income. Call `byMonth`/
+ * `byStatement`/`netByCategory`/etc. once per slice to get parallel expense
+ * and income aggregates.
  */
 
-export function isAnalyticsTxn(t: Txn): boolean {
-  return !NON_EXPENSE_CATEGORIES.includes(t.category);
-}
-
+/** True unless this is a transfer category (Payments & Transfers). */
 export function isExpenseCategory(category: string): boolean {
-  return (
-    !NON_EXPENSE_CATEGORIES.includes(category) && category !== MONEY_IN_CATEGORY
-  );
+  return !NON_EXPENSE_CATEGORIES.includes(category);
 }
 
-function signed(t: Txn): number {
-  return t.direction === "debit" ? t.amount : -t.amount;
+/**
+ * Splits transactions into expense and income slices by their category's
+ * type, excluding transfer categories from both. `incomeCategoryNames` is
+ * the caller's set of category names currently typed "income" (from
+ * `getCategories()`) — this file has no notion of category type itself.
+ */
+export function partitionByType(
+  txns: Txn[],
+  incomeCategoryNames: ReadonlySet<string>,
+): { expense: Txn[]; income: Txn[] } {
+  const expense: Txn[] = [];
+  const income: Txn[] = [];
+  for (const t of txns) {
+    if (NON_EXPENSE_CATEGORIES.includes(t.category)) continue;
+    if (incomeCategoryNames.has(t.category)) income.push(t);
+    else expense.push(t);
+  }
+  return { expense, income };
+}
+
+/**
+ * Signed contribution of a transaction toward its category's net.
+ * `primary` is which direction counts as the "normal" flow for the slice
+ * being aggregated — "debit" for expenses (a charge is positive, a refund
+ * credit subtracts) or "credit" for income (a deposit is positive, a
+ * correction/clawback debit subtracts). Every function below defaults to
+ * "debit" so 100% of existing expense call sites are unchanged; income call
+ * sites (Income Dashboard, Income vs Expenditure Dashboard) pass "credit".
+ */
+function signed(t: Txn, primary: Direction = "debit"): number {
+  return t.direction === primary ? t.amount : -t.amount;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Net spend per expense category (refunds netted). Sorted descending. */
+/** Net per category (refunds/corrections netted against `primary`). Sorted descending. */
 export function netByCategory(
   txns: Txn[],
+  primary: Direction = "debit",
 ): Array<{ category: string; total: number }> {
   const map = new Map<string, number>();
   for (const t of txns) {
     if (!isExpenseCategory(t.category)) continue;
-    map.set(t.category, (map.get(t.category) ?? 0) + signed(t));
+    map.set(t.category, (map.get(t.category) ?? 0) + signed(t, primary));
   }
   return [...map.entries()]
     .map(([category, total]) => ({ category, total: round2(total) }))
     .sort((a, b) => b.total - a.total);
 }
 
-export function totalNetSpend(txns: Txn[]): number {
+export function totalNetSpend(txns: Txn[], primary: Direction = "debit"): number {
   return round2(
-    netByCategory(txns).reduce((sum, c) => sum + Math.max(c.total, 0), 0),
-  );
-}
-
-/** Money in: credits in Income & Refunds. */
-export function totalMoneyIn(txns: Txn[]): number {
-  return round2(
-    txns
-      .filter((t) => t.category === MONEY_IN_CATEGORY && t.direction === "credit")
-      .reduce((sum, t) => sum + t.amount, 0),
+    netByCategory(txns, primary).reduce((sum, c) => sum + Math.max(c.total, 0), 0),
   );
 }
 
@@ -99,14 +117,14 @@ function rollup(buckets: Map<string, { label: string; cats: Map<string, number> 
 }
 
 /** Calendar-month rollup (from transaction dates, so overlapping statements aggregate sanely). */
-export function byMonth(txns: Txn[]): Period[] {
+export function byMonth(txns: Txn[], primary: Direction = "debit"): Period[] {
   const buckets = new Map<string, { label: string; cats: Map<string, number> }>();
   for (const t of txns) {
     if (!isExpenseCategory(t.category)) continue;
     const month = t.date.slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(month)) continue;
     const bucket = buckets.get(month) ?? { label: monthLabel(month), cats: new Map() };
-    bucket.cats.set(t.category, (bucket.cats.get(t.category) ?? 0) + signed(t));
+    bucket.cats.set(t.category, (bucket.cats.get(t.category) ?? 0) + signed(t, primary));
     buckets.set(month, bucket);
   }
   return rollup(buckets).sort((a, b) => a.key.localeCompare(b.key));
@@ -114,10 +132,14 @@ export function byMonth(txns: Txn[]): Period[] {
 
 /**
  * Statement-period rollup: one column per uploaded statement (the billing
- * cycle), ordered by period start. Refund credits net against their category
- * inside each statement.
+ * cycle), ordered by period start. Refund/correction credits net against
+ * their category inside each statement.
  */
-export function byStatement(txns: Txn[], statements: Statement[]): Period[] {
+export function byStatement(
+  txns: Txn[],
+  statements: Statement[],
+  primary: Direction = "debit",
+): Period[] {
   const ordered = [...statements].sort((a, b) =>
     (a.period_start || a.uploaded_at).localeCompare(b.period_start || b.uploaded_at),
   );
@@ -129,9 +151,9 @@ export function byStatement(txns: Txn[], statements: Statement[]): Period[] {
     if (!isExpenseCategory(t.category)) continue;
     const bucket = buckets.get(t.statement_id);
     if (!bucket) continue;
-    bucket.cats.set(t.category, (bucket.cats.get(t.category) ?? 0) + signed(t));
+    bucket.cats.set(t.category, (bucket.cats.get(t.category) ?? 0) + signed(t, primary));
   }
-  // Keep statement order; drop statements with no expense transactions.
+  // Keep statement order; drop statements with no matching transactions.
   return rollup(buckets).filter((p) => Object.keys(p.byCategory).length > 0);
 }
 
@@ -154,11 +176,12 @@ export interface TopMerchantEntry {
   total: number; // net of refunds
 }
 
-/** The #1 merchant (by net spend) inside each period bucket. */
+/** The #1 merchant (by net) inside each period bucket. */
 export function topMerchantPerPeriod(
   txns: Txn[],
   periods: Period[],
   group: "statement" | "month",
+  primary: Direction = "debit",
 ): TopMerchantEntry[] {
   const out: TopMerchantEntry[] = [];
   for (const p of periods) {
@@ -166,7 +189,7 @@ export function topMerchantPerPeriod(
     for (const t of txns) {
       if (!isExpenseCategory(t.category)) continue;
       if (!txnInPeriod(t, group, p.key)) continue;
-      map.set(t.merchant, (map.get(t.merchant) ?? 0) + signed(t));
+      map.set(t.merchant, (map.get(t.merchant) ?? 0) + signed(t, primary));
     }
     let best: { merchant: string; total: number } | null = null;
     for (const [merchant, total] of map) {
@@ -179,13 +202,16 @@ export function topMerchantPerPeriod(
   return out;
 }
 
-/** The #1 merchant (by net spend) inside each expense category. */
-export function topMerchantPerCategory(txns: Txn[]): TopMerchantEntry[] {
+/** The #1 merchant (by net) inside each category. */
+export function topMerchantPerCategory(
+  txns: Txn[],
+  primary: Direction = "debit",
+): TopMerchantEntry[] {
   const byCat = new Map<string, Map<string, number>>();
   for (const t of txns) {
     if (!isExpenseCategory(t.category)) continue;
     const m = byCat.get(t.category) ?? new Map<string, number>();
-    m.set(t.merchant, (m.get(t.merchant) ?? 0) + signed(t));
+    m.set(t.merchant, (m.get(t.merchant) ?? 0) + signed(t, primary));
     byCat.set(t.category, m);
   }
   const out: TopMerchantEntry[] = [];
@@ -209,6 +235,7 @@ export function cumulativeSpend(
   txns: Txn[],
   group: "statement" | "month",
   periodKey: string,
+  primary: Direction = "debit",
 ): Array<{ day: number; cum: number }> {
   const inPeriod = txns
     .filter((t) => isExpenseCategory(t.category) && txnInPeriod(t, group, periodKey))
@@ -222,7 +249,7 @@ export function cumulativeSpend(
   const byDay = new Map<number, number>();
   for (const t of inPeriod) {
     const d = dayOf(t.date);
-    byDay.set(d, (byDay.get(d) ?? 0) + signed(t));
+    byDay.set(d, (byDay.get(d) ?? 0) + signed(t, primary));
   }
   const days = [...byDay.keys()].sort((a, b) => a - b);
   const out: Array<{ day: number; cum: number }> = [];
@@ -265,14 +292,15 @@ export function averageCumulative(
 export function topSpendDays(
   txns: Txn[],
   limit = 3,
+  primary: Direction = "debit",
 ): Array<{ date: string; total: number; topMerchant: string; count: number }> {
   const byDate = new Map<string, { total: number; count: number; merchants: Map<string, number> }>();
   for (const t of txns) {
     if (!isExpenseCategory(t.category)) continue;
     const d = byDate.get(t.date) ?? { total: 0, count: 0, merchants: new Map() };
-    d.total += signed(t);
+    d.total += signed(t, primary);
     d.count += 1;
-    d.merchants.set(t.merchant, (d.merchants.get(t.merchant) ?? 0) + signed(t));
+    d.merchants.set(t.merchant, (d.merchants.get(t.merchant) ?? 0) + signed(t, primary));
     byDate.set(t.date, d);
   }
   return [...byDate.entries()]
@@ -292,30 +320,32 @@ export function topSpendDays(
     .slice(0, limit);
 }
 
-/** Net spend per merchant within one period bucket. */
+/** Net per merchant within one period bucket. */
 export function merchantNetInPeriod(
   txns: Txn[],
   group: "statement" | "month",
   periodKey: string,
+  primary: Direction = "debit",
 ): Map<string, number> {
   const map = new Map<string, number>();
   for (const t of txns) {
     if (!isExpenseCategory(t.category)) continue;
     if (!txnInPeriod(t, group, periodKey)) continue;
-    map.set(t.merchant, round2((map.get(t.merchant) ?? 0) + signed(t)));
+    map.set(t.merchant, round2((map.get(t.merchant) ?? 0) + signed(t, primary)));
   }
   return map;
 }
 
-/** The merchant whose net spend changed the most between two periods. */
+/** The merchant whose net changed the most between two periods. */
 export function topMoverMerchant(
   txns: Txn[],
   group: "statement" | "month",
   currentKey: string,
   previousKey: string,
+  primary: Direction = "debit",
 ): { merchant: string; diff: number } | null {
-  const cur = merchantNetInPeriod(txns, group, currentKey);
-  const prev = merchantNetInPeriod(txns, group, previousKey);
+  const cur = merchantNetInPeriod(txns, group, currentKey, primary);
+  const prev = merchantNetInPeriod(txns, group, previousKey, primary);
   let best: { merchant: string; diff: number } | null = null;
   for (const merchant of new Set([...cur.keys(), ...prev.keys()])) {
     const diff = round2((cur.get(merchant) ?? 0) - (prev.get(merchant) ?? 0));
@@ -324,15 +354,16 @@ export function topMoverMerchant(
   return best && best.diff !== 0 ? best : null;
 }
 
-/** The single largest charge (debit) in a period. */
+/** The single largest transaction in the primary direction (a charge for expense, a deposit for income) in a period. */
 export function largestPurchase(
   txns: Txn[],
   group: "statement" | "month",
   periodKey: string,
+  primary: Direction = "debit",
 ): Txn | null {
   let best: Txn | null = null;
   for (const t of txns) {
-    if (t.direction !== "debit" || !isExpenseCategory(t.category)) continue;
+    if (t.direction !== primary || !isExpenseCategory(t.category)) continue;
     if (!txnInPeriod(t, group, periodKey)) continue;
     if (!best || t.amount > best.amount) best = t;
   }
@@ -371,9 +402,10 @@ export function weekdayOf(dateIso: string): (typeof WEEKDAYS)[number] | "" {
   return WEEKDAYS[(parsed.getUTCDay() + 6) % 7];
 }
 
-/** Net spend per day of week (Mon-first), for "which weekday costs the most?". */
+/** Net per day of week (Mon-first), for "which weekday costs/pays the most?". */
 export function byWeekday(
   txns: Txn[],
+  primary: Direction = "debit",
 ): Array<{ weekday: (typeof WEEKDAYS)[number]; total: number; count: number }> {
   const totals = new Array(7).fill(0);
   const counts = new Array(7).fill(0);
@@ -382,7 +414,7 @@ export function byWeekday(
     const parsed = new Date(`${t.date}T00:00:00Z`);
     if (Number.isNaN(parsed.getTime())) continue;
     const idx = (parsed.getUTCDay() + 6) % 7; // Sunday(0) → 6, Monday(1) → 0
-    totals[idx] += signed(t);
+    totals[idx] += signed(t, primary);
     counts[idx] += 1;
   }
   return WEEKDAYS.map((weekday, i) => ({

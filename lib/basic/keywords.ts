@@ -1,3 +1,5 @@
+import { Direction } from "@/lib/types";
+
 /**
  * Merchant keyword → category dictionary for the non-AI engine.
  * Tuned for AUSTRALIAN merchants and bank descriptors, plus unambiguous
@@ -12,8 +14,14 @@
  *
  * A miss means "ask the user", never a guess — and the user's own learned
  * CategoryRules always override this dictionary.
+ *
+ * An entry may carry an optional 3rd element restricting it to one
+ * direction — for merchants that mean something different as a debit
+ * (a purchase) vs a credit (e.g. a marketplace payout, which could also be
+ * a refund of that same purchase — genuinely ambiguous, so it's left
+ * unmatched on credit rather than guessed).
  */
-const KEYWORDS: Array<[string, string]> = [
+const KEYWORDS: Array<[string, string] | [string, string, Direction]> = [
   // --- Specific-before-general disambiguations ------------------------
   ["COLES EXPRESS", "Transport"], // Shell Coles Express fuel
   ["REDDY EXPRESS", "Transport"], // Coles Express rebrand
@@ -97,7 +105,11 @@ const KEYWORDS: Array<[string, string]> = [
   ["MYER", "Shopping"], ["DAVID JONES", "Shopping"], ["JB HI FI", "Shopping"],
   ["JB HIFI", "Shopping"], ["HARVEY NORMAN", "Shopping"], ["THE GOOD GUYS", "Shopping"],
   ["OFFICEWORKS", "Shopping"], ["BUNNINGS", "Shopping"], ["IKEA", "Shopping"],
-  ["AMAZON", "Shopping"], ["AMZN", "Shopping"], ["EBAY", "Shopping"],
+  ["AMAZON", "Shopping"], ["AMZN", "Shopping"],
+  // Debit-only: a credit "EBAY" line could be a purchase refund (keeps the
+  // original category) or a seller payout ("eBay" income) — ambiguous, so
+  // it's left unmatched on credit and falls to needs_review.
+  ["EBAY", "Shopping", "debit"],
   ["CATCH", "Shopping"], ["KOGAN", "Shopping"], ["TEMPLE & WEBSTER", "Shopping"],
   ["COTTON ON", "Shopping"], ["COUNTRY ROAD", "Shopping"], ["UNIQLO", "Shopping"],
   ["ZARA", "Shopping"], ["H&M", "Shopping"], ["THE ICONIC", "Shopping"],
@@ -158,10 +170,11 @@ const KEYWORDS: Array<[string, string]> = [
 
   // --- Generic phrases LAST (so merchant names above win first) ---------------
   // Income
-  ["SALARY", "Income & Refunds"], ["PAYROLL", "Income & Refunds"],
-  ["CENTRELINK", "Income & Refunds"], ["CASHBACK", "Income & Refunds"],
-  ["CASH REBATE", "Income & Refunds"], ["INTEREST EARNED", "Income & Refunds"],
-  ["INTEREST CREDIT", "Income & Refunds"], ["TAX REFUND", "Income & Refunds"],
+  ["SALARY", "Salary"], ["PAYROLL", "Salary"],
+  ["CENTRELINK", "Government Benefits"],
+  ["CASHBACK", "Interest & Cashback"], ["CASH REBATE", "Interest & Cashback"],
+  ["INTEREST EARNED", "Interest & Cashback"], ["INTEREST CREDIT", "Interest & Cashback"],
+  ["TAX REFUND", "Tax Refunds"],
   // Fees
   ["ANNUAL FEE", "Fees & Charges"], ["ACCOUNT KEEPING FEE", "Fees & Charges"],
   ["MONTHLY ACCOUNT FEE", "Fees & Charges"], ["LATE PAYMENT", "Fees & Charges"],
@@ -192,14 +205,17 @@ const KEYWORDS: Array<[string, string]> = [
  * normalized text, so "BP" matches "BP CONNECT" but not "BPAY", and "TARGET"
  * matches "TARGET AUSTRALIA" but never a token like "TARGETED".
  * First match in KEYWORDS order wins. Only returns categories that exist in
- * the user's category list.
+ * the user's category list. Entries restricted to a direction are skipped
+ * when the transaction's direction doesn't match.
  */
 export function matchKeyword(
   normalizedText: string,
   validCategories: Set<string>,
+  direction: Direction,
 ): string | null {
   const padded = ` ${normalizedText} `;
-  for (const [keyword, category] of KEYWORDS) {
+  for (const [keyword, category, restrictTo] of KEYWORDS) {
+    if (restrictTo && restrictTo !== direction) continue;
     if (padded.includes(` ${keyword} `) && validCategories.has(category)) {
       return category;
     }

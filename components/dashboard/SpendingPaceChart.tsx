@@ -30,18 +30,18 @@ export default function SpendingPaceChart({
   series,
   currency,
   budgetTotal,
+  emptyText = "No spending in the selected scope yet.",
 }: {
   series: PaceSeries[];
   currency: string;
   /** Aggregate per-cycle budget — drawn as a red target line. */
   budgetTotal?: number | null;
+  emptyText?: string;
 }) {
   const drawable = series.filter((s) => s.points.length > 0);
   if (drawable.length === 0) {
     return (
-      <p className="py-8 text-center text-sm text-zinc-500">
-        No spending in the selected scope yet.
-      </p>
+      <p className="py-8 text-center text-sm text-zinc-500">{emptyText}</p>
     );
   }
 

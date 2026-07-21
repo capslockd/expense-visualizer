@@ -9,9 +9,13 @@ import {
   formatMoney,
   monthLabel,
   netByCategory,
+  partitionByType,
   txnInPeriod,
 } from "@/lib/analytics";
+import { MAX_PERIODS, resolveDashboardParams } from "@/lib/dashboard/params";
 import DashboardSections from "@/components/dashboard/DashboardSections";
+import DashboardTabs from "@/components/dashboard/DashboardTabs";
+import DashboardControls from "@/components/dashboard/DashboardControls";
 import BudgetPanel from "@/components/dashboard/BudgetPanel";
 import {
   DeleteAllStatementsButton,
@@ -19,11 +23,7 @@ import {
 } from "@/components/dashboard/DeleteButtons";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Dashboard — Expense Visualizer" };
-
-/** Hard ceiling on chart columns rendered at once. */
-const MAX_PERIODS = 24;
-const SHOW_OPTIONS = [1, 3, 6, 12, 24] as const;
+export const metadata = { title: "Expense Dashboard — Expense Visualizer" };
 
 export default async function DashboardPage({
   searchParams,
@@ -60,29 +60,23 @@ export default async function DashboardPage({
 
   const params = await searchParams;
   const currencies = currenciesOf(allTxns);
-  const requestedCurrency =
-    typeof params.currency === "string" ? params.currency : null;
-  const currency =
-    requestedCurrency && currencies.includes(requestedCurrency)
-      ? requestedCurrency
-      : currencies[0];
+  const { currency, group, show } = resolveDashboardParams(params, currencies);
   const currencyTxns = allTxns.filter((t) => t.currency === currency);
 
-  // Grouping: by statement period (the billing cycle) by default.
-  const group = params.group === "month" ? "month" : "statement";
+  // This dashboard only ever shows expense-typed categories — income lives
+  // on its own dashboard, and transfers are excluded entirely.
+  const incomeCategoryNames = new Set(
+    categories.filter((c) => c.type === "income").map((c) => c.name),
+  );
+  const { expense: expenseTxns } = partitionByType(currencyTxns, incomeCategoryNames);
+
   const allPeriods =
-    group === "month"
-      ? byMonth(currencyTxns)
-      : byStatement(currencyTxns, statements);
+    group === "month" ? byMonth(expenseTxns) : byStatement(expenseTxns, statements);
 
   // Visible-window filter — never render more than MAX_PERIODS columns.
-  const requestedShow = Number(params.show);
-  const show = (SHOW_OPTIONS as readonly number[]).includes(requestedShow)
-    ? requestedShow
-    : MAX_PERIODS;
   const periods = allPeriods.slice(-Math.min(show, MAX_PERIODS));
   const visibleKeys = new Set(periods.map((p) => p.key));
-  const txns = currencyTxns.filter((t) =>
+  const txns = expenseTxns.filter((t) =>
     [...visibleKeys].some((k) => txnInPeriod(t, group, k)),
   );
 
@@ -99,13 +93,13 @@ export default async function DashboardPage({
   }
   // Pace gets both cuts regardless of the page grouping (statements usually
   // run mid-month → mid-month, so both levels are useful side by side).
-  const statementPeriodsAll = group === "statement" ? allPeriods : byStatement(currencyTxns, statements);
-  const monthPeriodsAll = group === "month" ? allPeriods : byMonth(currencyTxns);
+  const statementPeriodsAll = group === "statement" ? allPeriods : byStatement(expenseTxns, statements);
+  const monthPeriodsAll = group === "month" ? allPeriods : byMonth(expenseTxns);
   const statementPeriods = statementPeriodsAll.slice(-Math.min(show, MAX_PERIODS));
   const monthPeriods = monthPeriodsAll.slice(-Math.min(show, MAX_PERIODS));
 
   // The budget panel compares against the latest calendar month.
-  const monthly = byMonth(currencyTxns);
+  const monthly = byMonth(expenseTxns);
   const latestMonth = monthly[monthly.length - 1];
   const latestMonthName = latestMonth ? monthLabel(latestMonth.key) : "";
 
@@ -113,75 +107,20 @@ export default async function DashboardPage({
     b.uploaded_at.localeCompare(a.uploaded_at),
   );
 
-  const href = (over: { group?: string; show?: number; currency?: string }) => {
-    const q = new URLSearchParams();
-    q.set("group", over.group ?? group);
-    q.set("show", String(over.show ?? show));
-    if (currencies.length > 1) q.set("currency", over.currency ?? currency);
-    return `/dashboard?${q.toString()}`;
-  };
-
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
-            {(
-              [
-                ["statement", "By statement"],
-                ["month", "By month"],
-              ] as const
-            ).map(([g, label]) => (
-              <Link
-                key={g}
-                href={href({ group: g })}
-                className={`rounded-md px-3 py-1 text-sm ${
-                  g === group
-                    ? "bg-zinc-900 font-medium text-white"
-                    : "text-zinc-600 hover:bg-zinc-100"
-                }`}
-              >
-                {label}
-              </Link>
-            ))}
-          </div>
+      <DashboardTabs active="expense" />
 
-          <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
-            {SHOW_OPTIONS.map((n) => (
-              <Link
-                key={n}
-                href={href({ show: n })}
-                title={`Show the last ${n} ${periodNoun}s`}
-                className={`rounded-md px-3 py-1 text-sm ${
-                  n === show
-                    ? "bg-zinc-900 font-medium text-white"
-                    : "text-zinc-600 hover:bg-zinc-100"
-                }`}
-              >
-                {n}
-              </Link>
-            ))}
-          </div>
-
-          {currencies.length > 1 && (
-            <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
-              {currencies.map((c) => (
-                <Link
-                  key={c}
-                  href={href({ currency: c })}
-                  className={`rounded-md px-3 py-1 text-sm ${
-                    c === currency
-                      ? "bg-zinc-900 font-medium text-white"
-                      : "text-zinc-600 hover:bg-zinc-100"
-                  }`}
-                >
-                  {c}
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Expense Dashboard</h1>
+        <DashboardControls
+          basePath="/dashboard"
+          group={group}
+          show={show}
+          currency={currency}
+          currencies={currencies}
+          periodNoun={periodNoun}
+        />
       </div>
       {allPeriods.length > periods.length && (
         <p className="mt-1 text-xs text-zinc-400">
@@ -196,11 +135,12 @@ export default async function DashboardPage({
           monthPeriods={monthPeriods}
           rankedCategories={ranked}
           txns={txns}
-          allCurrencyTxns={currencyTxns}
+          allCurrencyTxns={expenseTxns}
           currency={currency}
           group={group}
           budgets={budgets}
-          categoryNames={categories.map((c) => c.name)}
+          categoryNames={categories.map((c) => ({ name: c.name, type: c.type }))}
+          mode="expense"
         />
       </div>
 
@@ -214,10 +154,12 @@ export default async function DashboardPage({
           </h2>
           <div className="mt-4">
             <BudgetPanel
-              categories={categories.map((c) => ({
-                name: c.name,
-                monthly_budget: c.monthly_budget,
-              }))}
+              categories={categories
+                .filter((c) => c.type === "expense")
+                .map((c) => ({
+                  name: c.name,
+                  monthly_budget: c.monthly_budget,
+                }))}
               actualByCategory={latestMonth?.byCategory ?? {}}
               currency={currency}
               monthName={latestMonthName}

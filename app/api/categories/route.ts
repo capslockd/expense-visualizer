@@ -12,19 +12,21 @@ function apiError(status: number, code: string, message: string) {
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
+function toResponseShape(c: { name: string; monthly_budget: number | null; type: string }) {
+  return { name: c.name, monthly_budget: c.monthly_budget, type: c.type };
+}
+
 export async function GET() {
   const userId = await getSessionUserId();
   if (!userId) return apiError(401, "UNAUTHORIZED", "Sign in first.");
   const categories = await getCategories(userId);
-  return NextResponse.json({
-    categories: categories.map((c) => ({
-      name: c.name,
-      monthly_budget: c.monthly_budget,
-    })),
-  });
+  return NextResponse.json({ categories: categories.map(toResponseShape) });
 }
 
-const AddSchema = z.object({ name: z.string().trim().min(1).max(40) });
+const AddSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  type: z.enum(["expense", "income"]),
+});
 
 export async function POST(req: Request) {
   const userId = await getSessionUserId();
@@ -40,7 +42,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return apiError(400, "INVALID_INPUT", "Category name must be 1–40 characters.");
   }
-  const name = parsed.data.name;
+  const { name, type } = parsed.data;
 
   // The hard requirement extends to user-created categories: no catch-alls.
   if (FORBIDDEN_CATEGORY_NAMES.includes(name.toLowerCase())) {
@@ -56,10 +58,10 @@ export async function POST(req: Request) {
     return apiError(409, "DUPLICATE_CATEGORY", `"${name}" already exists.`);
   }
 
-  await addCategory(userId, name);
+  await addCategory(userId, name, type);
   const categories = await getCategories(userId);
   return NextResponse.json(
-    { categories: categories.map((c) => c.name) },
+    { categories: categories.map(toResponseShape) },
     { status: 201 },
   );
 }

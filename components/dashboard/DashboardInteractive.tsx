@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Txn } from "@/lib/types";
+import { Direction, Txn } from "@/lib/types";
 import {
   Period,
   formatMoney,
@@ -20,6 +20,36 @@ import CategoryOrdersChart from "./CategoryOrdersChart";
 import CategoryTrendChart from "./CategoryTrendChart";
 import StatementPieModal from "./StatementPieModal";
 
+/** Copy that differs between the Expense and Income dashboards — the underlying math is identical either way. */
+const MODE_TEXT = {
+  expense: {
+    netLabel: "Net spend",
+    topRetailerLabel: "Top retailer",
+    moverRetailerLabel: "Biggest mover · retailer",
+    largestLabel: "Largest purchase",
+    largestSub: "no purchases",
+    dailySub: "no spending days",
+    noAmountSub: "no spending",
+    reversalNoun: "refund",
+    sectionTitle: "Spend by category",
+    sectionDesc: "Net of refunds · excludes card payments and transfers",
+    orderNoun: "order",
+  },
+  income: {
+    netLabel: "Total income",
+    topRetailerLabel: "Top income source",
+    moverRetailerLabel: "Biggest mover · income source",
+    largestLabel: "Largest deposit",
+    largestSub: "no deposits",
+    dailySub: "no income days",
+    noAmountSub: "no income",
+    reversalNoun: "correction",
+    sectionTitle: "Income by category",
+    sectionDesc: "Net of any corrections",
+    orderNoun: "deposit",
+  },
+} as const;
+
 /**
  * The context-sensitive top of the dashboard: 8 stat widgets scoped to the
  * focused statement (click any bar to change focus; default is the latest),
@@ -36,6 +66,7 @@ export default function DashboardInteractive({
   filter,
   onFilterChange,
   onActiveCategoryChange,
+  mode = "expense",
 }: {
   periods: Period[];
   rankedCategories: string[];
@@ -49,8 +80,15 @@ export default function DashboardInteractive({
   onFilterChange: (next: Set<string> | null) => void;
   /** Reports the clicked (drilled) category so Spending pace can follow it. */
   onActiveCategoryChange?: (categories: string[] | null) => void;
+  /** Expense Dashboard vs Income Dashboard — same math, different copy and "normal" direction. */
+  mode?: "expense" | "income";
 }) {
   const periodNoun = group === "statement" ? "statement" : "month";
+  const text = MODE_TEXT[mode];
+  // The "normal" flow direction for this slice: a charge for expense, a
+  // deposit for income. The opposite direction is the reversal (refund /
+  // correction) that nets against it.
+  const primary: Direction = mode === "income" ? "credit" : "debit";
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
   const [drillPeriodKey, setDrillPeriodKey] = useState<string | null>(null);
@@ -97,13 +135,17 @@ export default function DashboardInteractive({
     const deltaSub = (diff: number) =>
       `${diff >= 0 ? "+" : "−"}${formatMoney(Math.abs(diff), currency)} vs previous ${periodNoun}`;
 
-    // 1. Net spend
+    // A change is "good" (green) or "bad" (red) depending on direction: more
+    // spend is bad, more income is good — inverted between the two modes.
+    const worseWhen = (diff: number) => (mode === "income" ? diff < 0 : diff > 0);
+
+    // 1. Net spend / Total income
     const spendDelta = previous ? focus.total - previous.total : null;
     out.push({
-      label: `Net spend · ${focus.label}`,
+      label: `${text.netLabel} · ${focus.label}`,
       value: formatMoney(focus.total, currency),
       sub: spendDelta === null ? `first ${periodNoun} on record` : deltaSub(spendDelta),
-      subTone: spendDelta === null ? "neutral" : spendDelta > 0 ? "bad" : "good",
+      subTone: spendDelta === null ? "neutral" : worseWhen(spendDelta) ? "bad" : "good",
     });
 
     // 2. Top category
@@ -113,20 +155,20 @@ export default function DashboardInteractive({
     out.push({
       label: "Top category",
       value: topCat?.[0] ?? "—",
-      sub: topCat ? formatMoney(topCat[1], currency) : "no spending",
+      sub: topCat ? formatMoney(topCat[1], currency) : text.noAmountSub,
     });
 
-    // 3. Top retailer
+    // 3. Top retailer / income source
     let topMerchant: { name: string; total: number } | null = null;
-    for (const [name, total] of merchantNetInPeriod(txns, group, focus.key)) {
+    for (const [name, total] of merchantNetInPeriod(txns, group, focus.key, primary)) {
       if (total > 0 && (!topMerchant || total > topMerchant.total)) {
         topMerchant = { name, total };
       }
     }
     out.push({
-      label: "Top retailer",
+      label: text.topRetailerLabel,
       value: topMerchant?.name ?? "—",
-      sub: topMerchant ? formatMoney(topMerchant.total, currency) : "no spending",
+      sub: topMerchant ? formatMoney(topMerchant.total, currency) : text.noAmountSub,
     });
 
     // 4. Biggest mover — category
@@ -147,29 +189,32 @@ export default function DashboardInteractive({
       label: "Biggest mover · category",
       value: catMover?.category ?? "—",
       sub: catMover ? deltaSub(catMover.diff) : `needs a previous ${periodNoun}`,
-      subTone: !catMover ? "neutral" : catMover.diff > 0 ? "bad" : "good",
+      subTone: !catMover ? "neutral" : worseWhen(catMover.diff) ? "bad" : "good",
     });
 
-    // 5. Biggest mover — retailer
+    // 5. Biggest mover — retailer / income source
     const merchMover = previous
-      ? topMoverMerchant(txns, group, focus.key, previous.key)
+      ? topMoverMerchant(txns, group, focus.key, previous.key, primary)
       : null;
     out.push({
-      label: "Biggest mover · retailer",
+      label: text.moverRetailerLabel,
       value: merchMover?.merchant ?? "—",
       sub: merchMover ? deltaSub(merchMover.diff) : `needs a previous ${periodNoun}`,
-      subTone: !merchMover ? "neutral" : merchMover.diff > 0 ? "bad" : "good",
+      subTone: !merchMover ? "neutral" : worseWhen(merchMover.diff) ? "bad" : "good",
     });
 
     // 6. Transactions
     const periodTxns = txns.filter(
       (t) => isExpenseCategory(t.category) && txnInPeriod(t, group, focus.key),
     );
-    const refunds = periodTxns.filter((t) => t.direction === "credit").length;
+    const reversals = periodTxns.filter((t) => t.direction !== primary).length;
     out.push({
       label: "Transactions",
       value: String(periodTxns.length),
-      sub: refunds > 0 ? `${refunds} refund${refunds === 1 ? "" : "s"} included` : "no refunds",
+      sub:
+        reversals > 0
+          ? `${reversals} ${text.reversalNoun}${reversals === 1 ? "" : "s"} included`
+          : `no ${text.reversalNoun}s`,
     });
 
     // 7. Daily average
@@ -177,19 +222,19 @@ export default function DashboardInteractive({
     out.push({
       label: "Daily average",
       value: span > 0 ? formatMoney(focus.total / span, currency) : "—",
-      sub: span > 0 ? `over ${span} day${span === 1 ? "" : "s"}` : "no spending days",
+      sub: span > 0 ? `over ${span} day${span === 1 ? "" : "s"}` : text.dailySub,
     });
 
-    // 8. Largest purchase
-    const biggest = largestPurchase(txns, group, focus.key);
+    // 8. Largest purchase / deposit
+    const biggest = largestPurchase(txns, group, focus.key, primary);
     out.push({
-      label: "Largest purchase",
+      label: text.largestLabel,
       value: biggest ? formatMoney(biggest.amount, currency) : "—",
-      sub: biggest ? `${biggest.merchant} · ${biggest.date}` : "no purchases",
+      sub: biggest ? `${biggest.merchant} · ${biggest.date}` : text.largestSub,
     });
 
     return out;
-  }, [focus, previous, txns, group, currency, periodNoun]);
+  }, [focus, previous, txns, group, currency, periodNoun, mode, primary, text]);
 
   // ------------------------------------------------------------ drill data
   const topSet = useMemo(
@@ -216,12 +261,12 @@ export default function DashboardInteractive({
     let orders = 0;
     let refunds = 0;
     for (const t of drillTxns) {
-      net += t.direction === "debit" ? t.amount : -t.amount;
-      if (t.direction === "debit") orders += 1;
+      net += t.direction === primary ? t.amount : -t.amount;
+      if (t.direction === primary) orders += 1;
       else refunds += 1;
     }
     return { net: Math.round(net * 100) / 100, orders, refunds };
-  }, [drillTxns]);
+  }, [drillTxns, primary]);
 
   const drillColor = drillCategory
     ? drillCategory === OTHER_KEY
@@ -307,11 +352,11 @@ export default function DashboardInteractive({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-zinc-900">
-              Spend by category ·{" "}
+              {text.sectionTitle} ·{" "}
               {group === "statement" ? "per statement (billing cycle)" : "per calendar month"}
             </h2>
             <p className="mb-2 text-xs text-zinc-500">
-              Net of refunds · excludes card payments and transfers · {currency}
+              {text.sectionDesc} · {currency}
               {chartType === "bars" ? (
                 <>
                   {" "}
@@ -464,12 +509,13 @@ export default function DashboardInteractive({
                     className="inline-block h-2.5 w-2.5 rounded-sm"
                     style={{ background: drillColor }}
                   />
-                  {drillCategory} — every order, no aggregation
+                  {drillCategory} — every {text.orderNoun}, no aggregation
                 </h3>
                 <p className="mt-0.5 text-xs text-zinc-500">
-                  {drillStats.orders} order{drillStats.orders === 1 ? "" : "s"}
+                  {drillStats.orders} {text.orderNoun}
+                  {drillStats.orders === 1 ? "" : "s"}
                   {drillStats.refunds > 0 &&
-                    `, ${drillStats.refunds} refund${drillStats.refunds === 1 ? "" : "s"}`}{" "}
+                    `, ${drillStats.refunds} ${text.reversalNoun}${drillStats.refunds === 1 ? "" : "s"}`}{" "}
                   · net {drillStats.net < 0 ? "−" : ""}
                   {formatMoney(Math.abs(drillStats.net), currency)}
                 </p>
@@ -532,7 +578,13 @@ export default function DashboardInteractive({
               </button>
             </div>
 
-            <CategoryOrdersChart txns={drillTxns} currency={currency} color={drillColor} />
+            <CategoryOrdersChart
+              txns={drillTxns}
+              currency={currency}
+              color={drillColor}
+              primary={primary}
+              reversalNoun={text.reversalNoun}
+            />
           </div>
         )}
       </section>
@@ -545,6 +597,8 @@ export default function DashboardInteractive({
           currency={currency}
           group={group}
           onClose={() => setPieKey(null)}
+          primary={primary}
+          netNoun={mode === "income" ? "net income" : "net spend"}
         />
       )}
     </div>

@@ -83,8 +83,8 @@ const BANK_CATEGORY_SYNONYMS: Record<string, string> = {
   "bank fees": "Fees & Charges",
   fees: "Fees & Charges",
   interest: "Fees & Charges",
-  salary: "Income & Refunds",
-  wages: "Income & Refunds",
+  salary: "Salary",
+  wages: "Salary",
   income: "Income & Refunds",
   transfers: "Payments & Transfers",
   transfer: "Payments & Transfers",
@@ -162,6 +162,7 @@ export function basicExtract(
         matchKeyword(
           normalizeMerchant(`${t.description} ${t.merchant ?? ""}`),
           validCategories,
+          t.direction,
         ) ?? bankCategory;
       return {
         date: t.date,

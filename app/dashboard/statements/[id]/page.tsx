@@ -9,9 +9,9 @@ import {
 import {
   formatMoney,
   netByCategory,
+  partitionByType,
   statementLabel,
   topMerchants,
-  totalMoneyIn,
   totalNetSpend,
 } from "@/lib/analytics";
 import StatTiles, { Tile } from "@/components/dashboard/StatTiles";
@@ -41,15 +41,23 @@ export default async function StatementPage({
     getCategories(userId),
   ]);
   const currency = statement.currency || txns[0]?.currency || "AUD";
-  const categoryNames = categories.map((c) => c.name);
+  const categoryNames = categories.map((c) => ({ name: c.name, type: c.type }));
 
-  const breakdown = netByCategory(txns);
+  const incomeCategoryNames = new Set(
+    categories.filter((c) => c.type === "income").map((c) => c.name),
+  );
+  const { expense: expenseTxns, income: incomeTxns } = partitionByType(
+    txns,
+    incomeCategoryNames,
+  );
+
+  const breakdown = netByCategory(expenseTxns);
   const top = breakdown[0];
 
   const tiles: Tile[] = [
     {
       label: "Net spend",
-      value: formatMoney(totalNetSpend(txns), currency),
+      value: formatMoney(totalNetSpend(expenseTxns), currency),
       sub: "refunds netted, payments excluded",
     },
     {
@@ -60,7 +68,7 @@ export default async function StatementPage({
     { label: "Transactions", value: String(txns.length) },
     {
       label: "Money in",
-      value: formatMoney(totalMoneyIn(txns), currency),
+      value: formatMoney(totalNetSpend(incomeTxns, "credit"), currency),
     },
   ];
 
@@ -106,7 +114,7 @@ export default async function StatementPage({
           </p>
           <StatementExplorer
             breakdown={breakdown}
-            txns={txns}
+            txns={expenseTxns}
             currency={currency}
             categories={categoryNames}
           />
@@ -116,7 +124,7 @@ export default async function StatementPage({
           <h2 className="mb-3 text-sm font-semibold text-zinc-900">
             Top merchants
           </h2>
-          <TopMerchants rows={topMerchants(txns)} currency={currency} />
+          <TopMerchants rows={topMerchants(expenseTxns)} currency={currency} />
         </section>
       </div>
 

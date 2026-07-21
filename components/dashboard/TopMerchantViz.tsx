@@ -20,7 +20,7 @@ import {
   topMerchantPerPeriod,
   txnInPeriod,
 } from "@/lib/analytics";
-import { Txn } from "@/lib/types";
+import { CategoryType, Direction, Txn } from "@/lib/types";
 import EditableTxnTable from "./EditableTxnTable";
 
 type Selection = { view: "period" | "category"; entry: TopMerchantEntry };
@@ -145,18 +145,23 @@ export default function TopMerchantViz({
   categories,
   group,
   visibleCategories,
+  mode = "expense",
 }: {
   periods: Period[];
   periodNoun: "statement" | "month";
   currency: string;
   txns: Txn[];
-  categories: string[];
+  categories: { name: string; type: CategoryType }[];
   group: "statement" | "month";
   /** Category filter from the Spend-by-category card — null = all. */
   visibleCategories: string[] | null;
+  /** Expense Dashboard vs Income Dashboard — same math, different copy and "normal" direction. */
+  mode?: "expense" | "income";
 }) {
   const [view, setView] = useState<"period" | "category">("period");
   const [selection, setSelection] = useState<Selection | null>(null);
+  const primary: Direction = mode === "income" ? "credit" : "debit";
+  const amountNoun = mode === "income" ? "income" : "expenses";
 
   // The whole section follows the category filter, drill included.
   const txns = useMemo(() => {
@@ -166,10 +171,13 @@ export default function TopMerchantViz({
   }, [allTxns, visibleCategories]);
 
   const perPeriod = useMemo(
-    () => topMerchantPerPeriod(txns, periods, group),
-    [txns, periods, group],
+    () => topMerchantPerPeriod(txns, periods, group, primary),
+    [txns, periods, group, primary],
   );
-  const perCategory = useMemo(() => topMerchantPerCategory(txns), [txns]);
+  const perCategory = useMemo(
+    () => topMerchantPerCategory(txns, primary),
+    [txns, primary],
+  );
 
   const drillTxns = useMemo(() => {
     if (!selection) return [];
@@ -188,11 +196,11 @@ export default function TopMerchantViz({
     () =>
       Math.round(
         drillTxns.reduce(
-          (s, t) => s + (t.direction === "debit" ? t.amount : -t.amount),
+          (s, t) => s + (t.direction === primary ? t.amount : -t.amount),
           0,
         ) * 100,
       ) / 100,
-    [drillTxns],
+    [drillTxns, primary],
   );
 
   function switchView(v: "period" | "category") {
@@ -235,7 +243,7 @@ export default function TopMerchantViz({
         <TopMerchantBars
           rows={perPeriod}
           currency={currency}
-          emptyText={`No ${periodNoun}s with expenses yet.`}
+          emptyText={`No ${periodNoun}s with ${amountNoun} yet.`}
           selectedKey={selection?.view === "period" ? selection.entry.key : null}
           onSelect={handleSelect("period")}
         />
@@ -243,7 +251,7 @@ export default function TopMerchantViz({
         <TopMerchantBars
           rows={perCategory}
           currency={currency}
-          emptyText="No categorized expenses yet."
+          emptyText={`No categorized ${amountNoun} yet.`}
           selectedKey={selection?.view === "category" ? selection.entry.key : null}
           onSelect={handleSelect("category")}
         />

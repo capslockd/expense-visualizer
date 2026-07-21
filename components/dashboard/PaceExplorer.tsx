@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Txn } from "@/lib/types";
+import { Direction, Txn } from "@/lib/types";
 import {
   Period,
   averageCumulative,
@@ -15,15 +15,32 @@ import {
 import SpendingPaceChart, { PaceSeries } from "./SpendingPaceChart";
 import WeekdayChart from "./WeekdayChart";
 
-type Mode = "previous" | "all" | "average";
+type CompareMode = "previous" | "all" | "average";
 type Level = "statement" | "month";
 
+const MODE_TEXT = {
+  expense: {
+    daysTitle: "Highest-spend days",
+    daysDesc: "Top 10 net-spend days",
+    daysEmpty: "No spending days yet.",
+    weekdayTitle: "Spending by day of week",
+    weekdayDesc: "Net spend per weekday",
+  },
+  income: {
+    daysTitle: "Highest-income days",
+    daysDesc: "Top 10 net-income days",
+    daysEmpty: "No income days yet.",
+    weekdayTitle: "Income by day of week",
+    weekdayDesc: "Net income per weekday",
+  },
+} as const;
+
 /**
- * Spending-pace section with its own statement/month level (independent of
- * the page grouping — statements usually run 16th→15th, so both cuts are
- * useful). Pick a focus cycle, compare vs previous / all / average, with the
- * aggregate budget as a red target line. Highest-spend days (top 10, with
- * weekday) and the day-of-week breakdown follow the same scope.
+ * Spending/income-pace section with its own statement/month level
+ * (independent of the page grouping — statements usually run 16th→15th, so
+ * both cuts are useful). Pick a focus cycle, compare vs previous / all /
+ * average, with the aggregate budget as a red target line. Highest days
+ * (top 10, with weekday) and the day-of-week breakdown follow the same scope.
  */
 export default function PaceExplorer({
   statementPeriods,
@@ -33,6 +50,7 @@ export default function PaceExplorer({
   defaultLevel,
   budgetTotal,
   visibleCategories,
+  mode = "expense",
 }: {
   statementPeriods: Period[];
   monthPeriods: Period[];
@@ -43,9 +61,13 @@ export default function PaceExplorer({
   budgetTotal: number | null;
   /** Category filter from the Spend-by-category card — null = all. */
   visibleCategories: string[] | null;
+  /** Expense Dashboard vs Income Dashboard — same math, different copy and "normal" direction. */
+  mode?: "expense" | "income";
 }) {
+  const text = MODE_TEXT[mode];
+  const primary: Direction = mode === "income" ? "credit" : "debit";
   const [level, setLevel] = useState<Level>(defaultLevel);
-  const [mode, setMode] = useState<Mode>("previous");
+  const [compareMode, setCompareMode] = useState<CompareMode>("previous");
   const [focusKey, setFocusKey] = useState<string | null>(null);
 
   // Every curve, top-day, and weekday figure follows the category filter.
@@ -68,10 +90,10 @@ export default function PaceExplorer({
   const curves = useMemo(() => {
     const map = new Map<string, Array<{ day: number; cum: number }>>();
     for (const p of periods) {
-      map.set(p.key, cumulativeSpend(txns, level, p.key));
+      map.set(p.key, cumulativeSpend(txns, level, p.key, primary));
     }
     return map;
-  }, [periods, txns, level]);
+  }, [periods, txns, level, primary]);
 
   const series = useMemo<PaceSeries[]>(() => {
     if (!focus) return [];
@@ -81,7 +103,7 @@ export default function PaceExplorer({
       points: curves.get(focus.key) ?? [],
       variant: "accent",
     };
-    if (mode === "all") {
+    if (compareMode === "all") {
       return [
         ...periods
           .filter((p) => p.key !== focus.key)
@@ -94,7 +116,7 @@ export default function PaceExplorer({
         focusSeries,
       ];
     }
-    if (mode === "average") {
+    if (compareMode === "average") {
       return [
         {
           key: "__avg__",
@@ -118,31 +140,37 @@ export default function PaceExplorer({
         : []),
       focusSeries,
     ];
-  }, [mode, focus, previous, periods, curves, periodNoun]);
+  }, [compareMode, focus, previous, periods, curves, periodNoun]);
 
   // Top-spend days + weekday breakdown share the scope: the focus cycle,
   // or every visible cycle when comparing all.
   const scopedTxns = useMemo(() => {
-    if (mode === "all") {
+    if (compareMode === "all") {
       return txns.filter((t) => periods.some((p) => txnInPeriod(t, level, p.key)));
     }
     if (!focus) return [];
     return txns.filter((t) => txnInPeriod(t, level, focus.key));
-  }, [mode, focus, txns, level, periods]);
-  const scopeLabel = mode === "all" ? `all ${periodNoun}s` : (focus?.label ?? "");
+  }, [compareMode, focus, txns, level, periods]);
+  const scopeLabel = compareMode === "all" ? `all ${periodNoun}s` : (focus?.label ?? "");
 
-  const topDays = useMemo(() => topSpendDays(scopedTxns, 10), [scopedTxns]);
-  const weekdays = useMemo(() => byWeekday(scopedTxns), [scopedTxns]);
+  const topDays = useMemo(
+    () => topSpendDays(scopedTxns, 10, primary),
+    [scopedTxns, primary],
+  );
+  const weekdays = useMemo(
+    () => byWeekday(scopedTxns, primary),
+    [scopedTxns, primary],
+  );
 
   const filterNote = visibleCategories
     ? ` · filtered to ${visibleCategories.join(", ")}`
     : "";
   const subtitle =
-    (mode === "previous"
+    (compareMode === "previous"
       ? previous
         ? `${focus?.label} vs ${previous.label}`
         : `${focus?.label} — first ${periodNoun}, nothing earlier to compare`
-      : mode === "all"
+      : compareMode === "all"
         ? `${focus?.label} highlighted against every ${periodNoun}`
         : `${focus?.label} vs the average of all ${periods.length} ${periodNoun}s`) +
     filterNote;
@@ -186,9 +214,9 @@ export default function PaceExplorer({
             <button
               key={m}
               type="button"
-              onClick={() => setMode(m)}
+              onClick={() => setCompareMode(m)}
               className={`rounded-md px-3 py-1 ${
-                mode === m
+                compareMode === m
                   ? "bg-white font-medium text-zinc-900 shadow-sm"
                   : "text-zinc-600 hover:text-zinc-900"
               }`}
@@ -218,18 +246,23 @@ export default function PaceExplorer({
       </div>
 
       <p className="mb-3 text-xs text-zinc-500">{subtitle}</p>
-      <SpendingPaceChart series={series} currency={currency} budgetTotal={budgetTotal} />
+      <SpendingPaceChart
+        series={series}
+        currency={currency}
+        budgetTotal={budgetTotal}
+        emptyText={mode === "income" ? "No income in the selected scope yet." : undefined}
+      />
 
       <div className="mt-5 grid gap-6 lg:grid-cols-2">
         <div>
           <h3 className="text-sm font-semibold text-zinc-900">
-            Highest-spend days
+            {text.daysTitle}
           </h3>
           <p className="mb-3 text-xs text-zinc-500">
-            Top 10 net-spend days in {scopeLabel}
+            {text.daysDesc} in {scopeLabel}
           </p>
           {topDays.length === 0 ? (
-            <p className="py-4 text-sm text-zinc-500">No spending days yet.</p>
+            <p className="py-4 text-sm text-zinc-500">{text.daysEmpty}</p>
           ) : (
             <ol className="space-y-1.5">
               {topDays.map((d, i) => (
@@ -272,12 +305,16 @@ export default function PaceExplorer({
 
         <div>
           <h3 className="text-sm font-semibold text-zinc-900">
-            Spending by day of week
+            {text.weekdayTitle}
           </h3>
           <p className="mb-1 text-xs text-zinc-500">
-            Net spend per weekday in {scopeLabel} — the biggest day is highlighted
+            {text.weekdayDesc} in {scopeLabel} — the biggest day is highlighted
           </p>
-          <WeekdayChart data={weekdays} currency={currency} />
+          <WeekdayChart
+            data={weekdays}
+            currency={currency}
+            emptyText={mode === "income" ? "No income in the selected scope yet." : undefined}
+          />
         </div>
       </div>
     </div>

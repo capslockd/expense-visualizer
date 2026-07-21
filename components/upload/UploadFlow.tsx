@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ExtractedStatement, ExtractedTxn } from "@/lib/types";
+import { CategoryType, ExtractedStatement, ExtractedTxn } from "@/lib/types";
 import Dropzone from "./Dropzone";
 import ReviewTable from "./ReviewTable";
 import DuplicateBanner from "./DuplicateBanner";
@@ -32,7 +32,9 @@ export default function UploadFlow() {
   const [statement, setStatement] = useState<ExtractedStatement | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [rows, setRows] = useState<ReviewRow[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
+  const [categories, setCategories] = useState<
+    { name: string; type: CategoryType }[]
+  >([]);
   const [duplicate, setDuplicate] = useState(false);
 
   const unresolvedCount = useMemo(
@@ -118,11 +120,14 @@ export default function UploadFlow() {
     );
   }
 
-  async function handleAddCategory(name: string): Promise<string | null> {
+  async function handleAddCategory(
+    name: string,
+    type: CategoryType,
+  ): Promise<string | null> {
     const res = await fetch("/api/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, type }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) return body?.error?.message ?? "Could not add category.";

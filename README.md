@@ -39,8 +39,12 @@ created it. All data lives in your own Google Sheet — no database.
    your choices into rules for next time.
 4. **Save** → rows are appended to your Google Sheet (`Transactions`,
    `CategoryRules`, then a `Statements` commit row).
-5. **Dashboard** → most-expensive category per statement, monthly trend by
-   category, budget vs actual, top merchants.
+5. **Three dashboards** → **Expense Dashboard** (most-expensive category per
+   statement, monthly trend by category, budget vs actual, top merchants),
+   **Income Dashboard** (the same shape, for income categories — Salary,
+   Business, eBay, Website, and more), and **Income vs Expenditure**
+   (income vs expenses side by side per statement/month, with the surplus or
+   shortfall called out).
 
 ## Setup
 
@@ -102,26 +106,35 @@ npm run build && npm start   # http://localhost:3000
 | `Statements` | id, user_id, uploaded_at, period_start, period_end, source_filename, currency, total_debits, total_credits, transaction_count, content_hash |
 | `Transactions` | id, user_id, statement_id, date, description, merchant, merchant_normalized, amount, direction, currency, category, categorized_by |
 | `CategoryRules` | user_id, merchant_normalized, category, created_at |
-| `Categories` | user_id, name, monthly_budget, created_at |
+| `Categories` | user_id, name, monthly_budget, created_at, type |
 
-- Default categories are seeded **per user** on first use. Add your own from
-  the review screen — catch-all names (Miscellaneous, Other, …) are rejected.
+- Default categories are seeded **per user** on first use — 13 expense
+  categories, Payments & Transfers, and 8 income categories (Salary,
+  Business, eBay, Website, Government Benefits, Interest & Cashback, Tax
+  Refunds, Income & Refunds). Add your own from the review screen — pick
+  Expense or Income, and catch-all names (Miscellaneous, Other, …) are
+  rejected. A transaction's income/expense classification is entirely
+  determined by which category it's assigned — there's no separate flag to
+  fall out of sync.
 - **Budgets:** put a number in the `monthly_budget` column of `Categories`
   and the dashboard's budget-vs-actual section fills in.
 - Amounts are always positive; `direction` (debit/credit) carries the sign.
 - The `Statements` row is written last during a save, so a crash mid-save
   leaves only orphaned rows that the app ignores.
 
-## Expense semantics
+## Expense & income semantics
 
 - **Payments & Transfers** (card payments, transfers) are excluded from all
-  analytics — paying your card bill isn't spending.
-- A refund of an identifiable purchase keeps the purchase's category and
-  *subtracts* from it (net spend).
-- Other incoming money goes to **Income & Refunds**, shown as "money in" and
-  excluded from expense charts.
+  analytics entirely — paying your card bill isn't spending or income.
+- Every other category is typed **expense** or **income**. A refund of an
+  identifiable purchase keeps the purchase's (expense) category and
+  *subtracts* from it — it never becomes income. A correction against an
+  income category (e.g. a clawed-back deposit) works the same way in reverse.
+- The Expense Dashboard only ever shows expense-typed categories; the Income
+  Dashboard only ever shows income-typed ones. Income vs Expenditure compares
+  the two totals per statement/month.
 - Multi-currency: amounts are the billed value in the statement currency; if
-  your sheet accumulates more than one currency, the dashboard gets a currency
+  your sheet accumulates more than one currency, the dashboards get a currency
   toggle. No FX conversion (out of scope).
 
 ## Notes & limits

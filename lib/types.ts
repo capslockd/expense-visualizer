@@ -1,6 +1,8 @@
 export type Direction = "debit" | "credit";
 export type CategorizedBy = "ai" | "rule" | "user" | "keyword";
 export type AuthProvider = "google" | "credentials" | "both";
+/** Whether a category counts toward income or expense analytics. */
+export type CategoryType = "expense" | "income";
 
 export interface User {
   id: string;
@@ -52,6 +54,7 @@ export interface CategoryRule {
 export interface Category {
   user_id: string;
   name: string;
+  type: CategoryType;
   monthly_budget: number | null;
   created_at: string;
 }
@@ -86,7 +89,7 @@ export interface ExtractResponse {
   statement: ExtractedStatement;
   transactions: ExtractedTxn[];
   warnings: string[];
-  categories: string[];
+  categories: { name: string; type: CategoryType }[];
 }
 
 export interface SaveStatementRequest {
@@ -134,24 +137,41 @@ export const FORBIDDEN_CATEGORY_NAMES = [
   "general",
 ];
 
-export const DEFAULT_CATEGORIES = [
-  "Groceries",
-  "Dining",
-  "Transport",
-  "Utilities",
-  "Entertainment",
-  "Shopping",
-  "Health",
-  "Travel",
-  "Subscriptions",
-  "Housing",
-  "Insurance",
-  "Education",
-  "Fees & Charges",
-  "Income & Refunds",
-  "Payments & Transfers",
+export interface DefaultCategory {
+  name: string;
+  type: CategoryType;
+}
+
+/**
+ * Seeded per-user on first use. Order is the seed/dropdown order — expense
+ * categories first, then income. "Payments & Transfers" is typed "expense"
+ * as a don't-care default: NON_EXPENSE_CATEGORIES excludes it from every
+ * analytics path before its type is ever consulted.
+ */
+export const DEFAULT_CATEGORIES: DefaultCategory[] = [
+  { name: "Groceries", type: "expense" },
+  { name: "Dining", type: "expense" },
+  { name: "Transport", type: "expense" },
+  { name: "Utilities", type: "expense" },
+  { name: "Entertainment", type: "expense" },
+  { name: "Shopping", type: "expense" },
+  { name: "Health", type: "expense" },
+  { name: "Travel", type: "expense" },
+  { name: "Subscriptions", type: "expense" },
+  { name: "Housing", type: "expense" },
+  { name: "Insurance", type: "expense" },
+  { name: "Education", type: "expense" },
+  { name: "Fees & Charges", type: "expense" },
+  { name: "Payments & Transfers", type: "expense" },
+  { name: "Salary", type: "income" },
+  { name: "Business", type: "income" },
+  { name: "eBay", type: "income" },
+  { name: "Website", type: "income" },
+  { name: "Government Benefits", type: "income" },
+  { name: "Interest & Cashback", type: "income" },
+  { name: "Tax Refunds", type: "income" },
+  { name: "Income & Refunds", type: "income" },
 ];
 
-/** Categories excluded from expense analytics. */
+/** Categories excluded from analytics entirely (not income, not expense). */
 export const NON_EXPENSE_CATEGORIES = ["Payments & Transfers"];
-export const MONEY_IN_CATEGORY = "Income & Refunds";

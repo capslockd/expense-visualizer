@@ -35,6 +35,17 @@ export const chart = {
   meterFill: "#2a78d6",
   critical: "#d03b3b",
   good: "#006300",
+
+  /**
+   * Income-vs-Expenditure series identity (2 series, categorical — not a
+   * status). Reuses slots[0]/slots[1] rather than introducing new hex values:
+   * both are already individually validated against this surface, and their
+   * adjacent-pair CVD separation is already bounded (the palette's worst
+   * adjacent pair overall is ΔE 7.4, the legal floor with secondary encoding
+   * — this chart always ships a legend + direct labels, so that's covered).
+   */
+  expenseSeries: "#2a78d6",
+  incomeSeries: "#008300",
 } as const;
 
 /** Stable category → color assignment shared by all charts on a page. */

@@ -20,16 +20,16 @@ import { WEEKDAYS, formatMoney } from "@/lib/analytics";
 export default function WeekdayChart({
   data,
   currency,
+  emptyText = "No spending in the selected scope yet.",
 }: {
   data: Array<{ weekday: (typeof WEEKDAYS)[number]; total: number; count: number }>;
   currency: string;
+  emptyText?: string;
 }) {
   const hasSpend = data.some((d) => d.total > 0);
   if (!hasSpend) {
     return (
-      <p className="py-8 text-center text-sm text-zinc-500">
-        No spending in the selected scope yet.
-      </p>
+      <p className="py-8 text-center text-sm text-zinc-500">{emptyText}</p>
     );
   }
   const max = Math.max(...data.map((d) => d.total));

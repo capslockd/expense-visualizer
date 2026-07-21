@@ -1,5 +1,6 @@
 "use client";
 
+import { CategoryType } from "@/lib/types";
 import CategorySelect from "./CategorySelect";
 import type { ReviewRow } from "./UploadFlow";
 
@@ -22,10 +23,10 @@ export default function ReviewTable({
   onAddCategory,
 }: {
   rows: ReviewRow[];
-  categories: string[];
+  categories: { name: string; type: CategoryType }[];
   onCategoryChange: (tempId: string, category: string) => void;
   onRememberChange: (tempId: string, remember: boolean) => void;
-  onAddCategory: (name: string) => Promise<string | null>;
+  onAddCategory: (name: string, type: CategoryType) => Promise<string | null>;
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">

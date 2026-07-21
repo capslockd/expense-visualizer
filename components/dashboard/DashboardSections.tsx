@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Txn } from "@/lib/types";
+import { CategoryType, Txn } from "@/lib/types";
 import { Period } from "@/lib/analytics";
 import DashboardInteractive from "./DashboardInteractive";
 import PaceExplorer from "./PaceExplorer";
@@ -11,6 +11,8 @@ import TopMerchantViz from "./TopMerchantViz";
  * Owns the category filter so every section aligns to it: the Spend-by-
  * category chart (bars/pie), Spending pace, Highest-spend days, Spending by
  * day of week, and Top merchants all show only the selected categories.
+ * Reused for both the Expense and Income dashboards via `mode` — the
+ * underlying math is category-agnostic, only copy changes.
  */
 export default function DashboardSections({
   periods,
@@ -23,6 +25,7 @@ export default function DashboardSections({
   group,
   budgets,
   categoryNames,
+  mode = "expense",
 }: {
   periods: Period[];
   statementPeriods: Period[];
@@ -35,7 +38,9 @@ export default function DashboardSections({
   currency: string;
   group: "statement" | "month";
   budgets: Record<string, number>;
-  categoryNames: string[];
+  categoryNames: { name: string; type: CategoryType }[];
+  /** Expense Dashboard vs Income Dashboard — same math, different copy and "normal" direction. */
+  mode?: "expense" | "income";
 }) {
   const [filter, setFilter] = useState<Set<string> | null>(null);
   // The category clicked/drilled in the bar or pie chart — narrows Spending
@@ -61,6 +66,13 @@ export default function DashboardSections({
     : filterNote;
   const periodNoun = group === "statement" ? "statement" : "month";
 
+  const paceTitle = mode === "income" ? "Income pace" : "Spending pace";
+  const merchantTitle = mode === "income" ? "Top income source" : "Top merchant";
+  const merchantDesc =
+    mode === "income"
+      ? `The single biggest income source (net of corrections) inside each ${periodNoun} and each category — click a bar to see the transactions behind it`
+      : `The single biggest merchant (net of refunds) inside each ${periodNoun} and each category — click a bar to see the transactions behind it`;
+
   return (
     <>
       <DashboardInteractive
@@ -73,12 +85,13 @@ export default function DashboardSections({
         filter={filter}
         onFilterChange={setFilter}
         onActiveCategoryChange={setActiveDrill}
+        mode={mode}
       />
 
       {periods.length > 0 && (
         <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
           <h2 className="mb-3 text-sm font-semibold text-zinc-900">
-            Spending pace
+            {paceTitle}
             {paceNote && (
               <span className="ml-1 font-normal text-zinc-400">{paceNote}</span>
             )}
@@ -91,21 +104,19 @@ export default function DashboardSections({
             defaultLevel={group}
             budgetTotal={paceBudgetTotal > 0 ? paceBudgetTotal : null}
             visibleCategories={paceCategories}
+            mode={mode}
           />
         </section>
       )}
 
       <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-5">
         <h2 className="text-sm font-semibold text-zinc-900">
-          Top merchant
+          {merchantTitle}
           {filterNote && (
             <span className="ml-1 font-normal text-zinc-400">{filterNote}</span>
           )}
         </h2>
-        <p className="mb-4 text-xs text-zinc-500">
-          The single biggest merchant (net of refunds) inside each {periodNoun}{" "}
-          and each category — click a bar to see the transactions behind it
-        </p>
+        <p className="mb-4 text-xs text-zinc-500">{merchantDesc}</p>
         <TopMerchantViz
           periods={periods}
           periodNoun={periodNoun}
@@ -114,6 +125,7 @@ export default function DashboardSections({
           categories={categoryNames}
           group={group}
           visibleCategories={visibleCategories}
+          mode={mode}
         />
       </section>
     </>
