@@ -42,12 +42,20 @@ export default async function DashboardPage({
           Upload your first credit card or bank statement and every transaction
           will be extracted, categorized, and tracked here.
         </p>
-        <Link
-          href="/upload"
-          className="mt-6 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-zinc-700"
-        >
-          Upload a statement
-        </Link>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Link
+            href="/upload"
+            className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-zinc-700"
+          >
+            Upload a statement
+          </Link>
+          <Link
+            href="/dashboard/statements/manual"
+            className="rounded-lg border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            Add manually
+          </Link>
+        </div>
       </main>
     );
   }

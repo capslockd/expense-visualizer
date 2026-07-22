@@ -29,20 +29,37 @@ export default async function StatementsListPage() {
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Statements</h1>
-        <Link
-          href="/upload"
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
-        >
-          Upload a statement
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/dashboard/statements/manual"
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            Add manually
+          </Link>
+          <Link
+            href="/upload"
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+          >
+            Upload a statement
+          </Link>
+        </div>
       </div>
 
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-5">
         {sortedStatements.length === 0 ? (
-          <p className="py-6 text-center text-sm text-zinc-500">
-            No statements yet — upload your first credit card or bank
-            statement to get started.
-          </p>
+          <div className="py-6 text-center text-sm text-zinc-500">
+            <p>No statements yet.</p>
+            <p className="mt-1">
+              Upload a credit card or bank statement, or{" "}
+              <Link
+                href="/dashboard/statements/manual"
+                className="underline hover:text-zinc-700"
+              >
+                add transactions manually
+              </Link>
+              , to get started.
+            </p>
+          </div>
         ) : (
           <>
             <ul className="divide-y divide-zinc-100">

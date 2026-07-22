@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSessionUserId } from "@/lib/auth";
+import { statementFingerprint } from "@/lib/fingerprint";
 import {
   deleteAllStatementData,
   findStatementByHash,
@@ -20,7 +21,9 @@ const SaveSchema = z.object({
     period_end: z.string().nullable(),
     currency: z.string().min(1),
     source_filename: z.string().min(1),
-    content_hash: z.string().min(1),
+    // Omitted for manually-entered statements (no /api/extract step ran to
+    // compute one) — derived server-side below from the transactions instead.
+    content_hash: z.string().min(1).optional(),
     title: z.string().trim().max(80).optional(),
   }),
   transactions: z
@@ -99,9 +102,20 @@ export async function POST(req: Request) {
     );
   }
 
+  // Manual entries never went through /api/extract, so they arrive with no
+  // content_hash — derive one from the same (now-validated) transactions.
+  const content_hash =
+    statement.content_hash ??
+    statementFingerprint({
+      period_start: statement.period_start,
+      period_end: statement.period_end,
+      account_hint: null,
+      transactions,
+    });
+
   // Duplicate gate (per user).
   if (!allowDuplicate) {
-    const dup = await findStatementByHash(userId, statement.content_hash);
+    const dup = await findStatementByHash(userId, content_hash);
     if (dup) {
       return apiError(
         409,
@@ -130,7 +144,7 @@ export async function POST(req: Request) {
       period_end: statement.period_end ?? "",
       source_filename: statement.source_filename,
       currency: statement.currency,
-      content_hash: statement.content_hash,
+      content_hash,
       title: statement.title ?? "",
     },
     transactions: transactions.map((t) => ({
