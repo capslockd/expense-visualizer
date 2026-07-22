@@ -567,59 +567,74 @@ export async function updateTransactionCategory(
 // ---------------------------------------------------------------------------
 
 /**
- * Delete a single transaction and keep its parent statement's cached
- * total_debits/total_credits/transaction_count in sync — the Statements list
- * displays those directly rather than summing transactions live. Returns
- * null if the transaction doesn't exist or isn't owned by this user.
+ * Delete one or more transactions in a single batch (one row-delete request
+ * plus one totals-sync request, regardless of how many ids are passed), and
+ * keep every affected statement's cached total_debits/total_credits/
+ * transaction_count in sync — the Statements list displays those directly
+ * rather than summing transactions live. Ids not found or not owned by this
+ * user are silently skipped. Selected transactions may span more than one
+ * statement; each is adjusted independently.
  */
-export async function deleteTransaction(
+export async function deleteTransactions(
   userId: string,
-  txnId: string,
-): Promise<{ statement_id: string } | null> {
+  txnIds: string[],
+): Promise<{ deleted: number }> {
+  if (txnIds.length === 0) return { deleted: 0 };
+  const idSet = new Set(txnIds);
   const [txnRows, stmtRows] = await Promise.all([
     readTab("Transactions"),
     readTab("Statements"),
   ]);
-  const hit = txnRows.find(
-    (r) => asString(r.cells.id) === txnId && asString(r.cells.user_id) === userId,
+  const hits = txnRows.filter(
+    (r) => idSet.has(asString(r.cells.id)) && asString(r.cells.user_id) === userId,
   );
-  if (!hit) return null;
+  if (hits.length === 0) return { deleted: 0 };
 
-  const statementId = asString(hit.cells.statement_id);
-  const direction = asString(hit.cells.direction) || "debit";
-  const amount = asNumber(hit.cells.amount);
+  // Aggregate each affected statement's debit/credit/count adjustment before
+  // deleting rows, since row numbers below shift once rows are removed.
+  const adjustments = new Map<string, { debits: number; credits: number; count: number }>();
+  for (const hit of hits) {
+    const statementId = asString(hit.cells.statement_id);
+    const direction = asString(hit.cells.direction) || "debit";
+    const amount = asNumber(hit.cells.amount);
+    const adj = adjustments.get(statementId) ?? { debits: 0, credits: 0, count: 0 };
+    if (direction === "debit") adj.debits += amount;
+    else adj.credits += amount;
+    adj.count += 1;
+    adjustments.set(statementId, adj);
+  }
 
-  await deleteRows([{ tab: "Transactions", rowNumbers: [hit.rowNumber] }]);
+  await deleteRows([{ tab: "Transactions", rowNumbers: hits.map((h) => h.rowNumber) }]);
 
-  const stmt = stmtRows.find(
-    (r) => asString(r.cells.id) === statementId && asString(r.cells.user_id) === userId,
-  );
-  if (stmt) {
-    const nextDebits =
-      direction === "debit"
-        ? Math.max(0, Math.round((asNumber(stmt.cells.total_debits) - amount) * 100) / 100)
-        : asNumber(stmt.cells.total_debits);
-    const nextCredits =
-      direction === "credit"
-        ? Math.max(0, Math.round((asNumber(stmt.cells.total_credits) - amount) * 100) / 100)
-        : asNumber(stmt.cells.total_credits);
-    const nextCount = Math.max(0, asNumber(stmt.cells.transaction_count) - 1);
+  const updates: { range: string; values: number[][] }[] = [];
+  for (const [statementId, adj] of adjustments) {
+    const stmt = stmtRows.find(
+      (r) => asString(r.cells.id) === statementId && asString(r.cells.user_id) === userId,
+    );
+    if (!stmt) continue;
+    const nextDebits = Math.max(
+      0,
+      Math.round((asNumber(stmt.cells.total_debits) - adj.debits) * 100) / 100,
+    );
+    const nextCredits = Math.max(
+      0,
+      Math.round((asNumber(stmt.cells.total_credits) - adj.credits) * 100) / 100,
+    );
+    const nextCount = Math.max(0, asNumber(stmt.cells.transaction_count) - adj.count);
+    updates.push({
+      // Statements columns: … H=total_debits, I=total_credits, J=transaction_count
+      range: `Statements!H${stmt.rowNumber}:J${stmt.rowNumber}`,
+      values: [[nextDebits, nextCredits, nextCount]],
+    });
+  }
+  if (updates.length > 0) {
     await getSheets().spreadsheets.values.batchUpdate({
       spreadsheetId: getSpreadsheetId(),
-      requestBody: {
-        valueInputOption: "RAW",
-        // Statements columns: … H=total_debits, I=total_credits, J=transaction_count
-        data: [
-          {
-            range: `Statements!H${stmt.rowNumber}:J${stmt.rowNumber}`,
-            values: [[nextDebits, nextCredits, nextCount]],
-          },
-        ],
-      },
+      requestBody: { valueInputOption: "RAW", data: updates },
     });
   }
 
-  return { statement_id: statementId };
+  return { deleted: hits.length };
 }
 
 /** Delete one statement and every transaction in it. Learned rules stay. */

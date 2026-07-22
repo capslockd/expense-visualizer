@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getSessionUserId } from "@/lib/auth";
 import {
   appendRules,
-  deleteTransaction,
+  deleteTransactions,
   getCategories,
   getRules,
   updateTransactionCategory,
@@ -86,8 +86,8 @@ export async function DELETE(
     );
   }
   const { id } = await params;
-  const result = await deleteTransaction(userId, id);
-  if (!result) {
+  const result = await deleteTransactions(userId, [id]);
+  if (result.deleted === 0) {
     return NextResponse.json(
       { error: { code: "NOT_FOUND", message: "Transaction not found." } },
       { status: 404 },
