@@ -31,10 +31,27 @@ function asNumber(v: Cell): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Read all data rows of a tab as objects keyed by header, with 1-based sheet row numbers. */
-async function readTab(
-  tab: keyof typeof TABS,
-): Promise<Array<{ rowNumber: number; cells: Record<string, Cell> }>> {
+type TabRow = { rowNumber: number; cells: Record<string, Cell> };
+
+/**
+ * Every readTab() call fetches the WHOLE tab (every user's rows) — callers
+ * filter by user_id afterward — so a read is identical no matter which user
+ * triggered it. That makes a tab-name-keyed cache effective across
+ * concurrent users, not just repeat calls within one request: two different
+ * users loading a dashboard within the same TTL window share one Sheets API
+ * read instead of issuing two. TTL is a safety net for edits made directly
+ * in the spreadsheet outside the app; anything written through this module
+ * invalidates immediately via invalidateTab(), so a user's own action is
+ * never stale.
+ */
+const TAB_CACHE_TTL_MS = 15_000;
+const tabCache = new Map<keyof typeof TABS, { promise: Promise<TabRow[]>; expiresAt: number }>();
+
+function invalidateTab(tab: keyof typeof TABS): void {
+  tabCache.delete(tab);
+}
+
+async function fetchTab(tab: keyof typeof TABS): Promise<TabRow[]> {
   await ensureSheetSetup();
   const sheets = getSheets();
   const res = await sheets.spreadsheets.values.get({
@@ -55,6 +72,27 @@ async function readTab(
     .filter((r) => asString(r.cells[headers[0]]) !== "");
 }
 
+/**
+ * Read all data rows of a tab as objects keyed by header, with 1-based sheet
+ * row numbers. Cached (see TAB_CACHE_TTL_MS above) — concurrent callers
+ * within the same request (or across requests, within the TTL) share one
+ * in-flight fetch rather than each issuing their own.
+ */
+async function readTab(tab: keyof typeof TABS): Promise<TabRow[]> {
+  const cached = tabCache.get(tab);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const promise = fetchTab(tab);
+  tabCache.set(tab, { promise, expiresAt: Date.now() + TAB_CACHE_TTL_MS });
+  try {
+    return await promise;
+  } catch (err) {
+    // Don't let a failed fetch poison the cache for the rest of the TTL.
+    if (tabCache.get(tab)?.promise === promise) tabCache.delete(tab);
+    throw err;
+  }
+}
+
 async function appendRows(tab: keyof typeof TABS, rows: Cell[][]): Promise<void> {
   if (rows.length === 0) return;
   await ensureSheetSetup();
@@ -66,6 +104,7 @@ async function appendRows(tab: keyof typeof TABS, rows: Cell[][]): Promise<void>
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: rows.map((r) => r.map((c) => c ?? "")) },
   });
+  invalidateTab(tab);
 }
 
 export function newId(prefix: "usr" | "stmt" | "txn"): string {
@@ -120,6 +159,7 @@ async function deleteRows(
       })),
     },
   });
+  requests.forEach((r) => invalidateTab(r.tab));
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +233,7 @@ export async function updateUserAuth(
     spreadsheetId: getSpreadsheetId(),
     requestBody: { valueInputOption: "RAW", data },
   });
+  invalidateTab("Users");
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +302,7 @@ export async function getCategories(userId: string): Promise<Category[]> {
         spreadsheetId: getSpreadsheetId(),
         requestBody: { valueInputOption: "RAW", data: backfills },
       });
+      invalidateTab("Categories");
     }
 
     // Add any default category this account doesn't already have BY NAME
@@ -355,6 +397,7 @@ export async function updateCategoryBudget(
     valueInputOption: "RAW",
     requestBody: { values: [[budget === null ? "" : budget]] },
   });
+  invalidateTab("Categories");
   return true;
 }
 
@@ -377,6 +420,7 @@ export async function updateCategoryExcluded(
     valueInputOption: "RAW",
     requestBody: { values: [[excluded ? "TRUE" : "FALSE"]] },
   });
+  invalidateTab("Categories");
   return true;
 }
 
@@ -556,6 +600,7 @@ export async function updateTransactionCategory(
       ],
     },
   });
+  invalidateTab("Transactions");
   return {
     merchant_normalized: asString(hit.cells.merchant_normalized),
     previous_category: asString(hit.cells.category),
@@ -632,6 +677,7 @@ export async function deleteTransactions(
       spreadsheetId: getSpreadsheetId(),
       requestBody: { valueInputOption: "RAW", data: updates },
     });
+    invalidateTab("Statements");
   }
 
   return { deleted: hits.length };
