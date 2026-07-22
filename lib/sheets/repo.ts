@@ -566,6 +566,62 @@ export async function updateTransactionCategory(
 // Delete (user-requested removal of statement data)
 // ---------------------------------------------------------------------------
 
+/**
+ * Delete a single transaction and keep its parent statement's cached
+ * total_debits/total_credits/transaction_count in sync — the Statements list
+ * displays those directly rather than summing transactions live. Returns
+ * null if the transaction doesn't exist or isn't owned by this user.
+ */
+export async function deleteTransaction(
+  userId: string,
+  txnId: string,
+): Promise<{ statement_id: string } | null> {
+  const [txnRows, stmtRows] = await Promise.all([
+    readTab("Transactions"),
+    readTab("Statements"),
+  ]);
+  const hit = txnRows.find(
+    (r) => asString(r.cells.id) === txnId && asString(r.cells.user_id) === userId,
+  );
+  if (!hit) return null;
+
+  const statementId = asString(hit.cells.statement_id);
+  const direction = asString(hit.cells.direction) || "debit";
+  const amount = asNumber(hit.cells.amount);
+
+  await deleteRows([{ tab: "Transactions", rowNumbers: [hit.rowNumber] }]);
+
+  const stmt = stmtRows.find(
+    (r) => asString(r.cells.id) === statementId && asString(r.cells.user_id) === userId,
+  );
+  if (stmt) {
+    const nextDebits =
+      direction === "debit"
+        ? Math.max(0, Math.round((asNumber(stmt.cells.total_debits) - amount) * 100) / 100)
+        : asNumber(stmt.cells.total_debits);
+    const nextCredits =
+      direction === "credit"
+        ? Math.max(0, Math.round((asNumber(stmt.cells.total_credits) - amount) * 100) / 100)
+        : asNumber(stmt.cells.total_credits);
+    const nextCount = Math.max(0, asNumber(stmt.cells.transaction_count) - 1);
+    await getSheets().spreadsheets.values.batchUpdate({
+      spreadsheetId: getSpreadsheetId(),
+      requestBody: {
+        valueInputOption: "RAW",
+        // Statements columns: … H=total_debits, I=total_credits, J=transaction_count
+        data: [
+          {
+            range: `Statements!H${stmt.rowNumber}:J${stmt.rowNumber}`,
+            values: [[nextDebits, nextCredits, nextCount]],
+          },
+        ],
+      },
+    });
+  }
+
+  return { statement_id: statementId };
+}
+
 /** Delete one statement and every transaction in it. Learned rules stay. */
 export async function deleteStatementData(
   userId: string,

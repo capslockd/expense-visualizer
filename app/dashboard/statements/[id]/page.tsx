@@ -139,7 +139,7 @@ export default async function StatementPage({
         <h2 className="mb-3 text-sm font-semibold text-zinc-900">
           All transactions ({txns.length})
         </h2>
-        <EditableTxnTable txns={txns} categories={categoryNames} />
+        <EditableTxnTable txns={txns} categories={categoryNames} allowDelete />
       </section>
     </main>
   );

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getSessionUserId } from "@/lib/auth";
 import {
   appendRules,
+  deleteTransaction,
   getCategories,
   getRules,
   updateTransactionCategory,
@@ -70,5 +71,27 @@ export async function PATCH(
     }
   }
 
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return NextResponse.json(
+      { error: { code: "UNAUTHORIZED", message: "Sign in first." } },
+      { status: 401 },
+    );
+  }
+  const { id } = await params;
+  const result = await deleteTransaction(userId, id);
+  if (!result) {
+    return NextResponse.json(
+      { error: { code: "NOT_FOUND", message: "Transaction not found." } },
+      { status: 404 },
+    );
+  }
   return NextResponse.json({ ok: true });
 }
