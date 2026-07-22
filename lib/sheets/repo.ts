@@ -406,6 +406,47 @@ export async function appendRules(
 }
 
 // ---------------------------------------------------------------------------
+// Recurring dismissals (per user) — Trends Dashboard "dismiss" / "restore"
+// ---------------------------------------------------------------------------
+
+export async function getDismissedRecurring(userId: string): Promise<Set<string>> {
+  const rows = await readTab("RecurringDismissals");
+  const set = new Set<string>();
+  for (const r of rows) {
+    if (asString(r.cells.user_id) !== userId) continue;
+    set.add(asString(r.cells.merchant_normalized));
+  }
+  return set;
+}
+
+export async function dismissRecurring(
+  userId: string,
+  merchantNormalized: string,
+): Promise<void> {
+  const existing = await getDismissedRecurring(userId);
+  if (existing.has(merchantNormalized)) return; // avoid duplicate rows on repeat calls
+  await appendRows("RecurringDismissals", [
+    [userId, merchantNormalized, new Date().toISOString()],
+  ]);
+}
+
+export async function undismissRecurring(
+  userId: string,
+  merchantNormalized: string,
+): Promise<void> {
+  const rows = await readTab("RecurringDismissals");
+  const rowNumbers = rows
+    .filter(
+      (r) =>
+        asString(r.cells.user_id) === userId &&
+        asString(r.cells.merchant_normalized) === merchantNormalized,
+    )
+    .map((r) => r.rowNumber);
+  if (rowNumbers.length === 0) return;
+  await deleteRows([{ tab: "RecurringDismissals", rowNumbers }]);
+}
+
+// ---------------------------------------------------------------------------
 // Statements
 // ---------------------------------------------------------------------------
 

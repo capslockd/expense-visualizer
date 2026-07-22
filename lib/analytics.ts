@@ -431,6 +431,210 @@ export function merchantsInCategory(
     .sort((a, b) => b.total - a.total);
 }
 
+// ---------------------------------------------------------------------------
+// Trends Dashboard: recurring merchants, year-in-review
+// ---------------------------------------------------------------------------
+
+export type RecurringCadence = "weekly" | "monthly" | "quarterly" | "annual";
+
+export interface RecurringMerchant {
+  /** Grouping key: t.merchant_normalized. */
+  merchantNormalized: string;
+  /** Display name, from the latest qualifying occurrence. */
+  merchant: string;
+  /** Category of the latest qualifying occurrence. */
+  category: string;
+  cadence: RecurringCadence;
+  occurrences: number;
+  medianGapDays: number;
+  firstSeen: string;
+  lastSeen: string;
+  firstAmount: number;
+  latestAmount: number;
+  /** latestAmount normalized to a monthly cost. */
+  monthlyEquivalent: number;
+  priceChanged: boolean;
+  /** Signed, (latestAmount - firstAmount) / firstAmount * 100. */
+  priceChangePct: number;
+}
+
+// Tunable heuristic constants — starting points to refine once real detection
+// output is visible, not exposed as caller/UI options.
+const GAP_TOLERANCE_RATIO = 0.3;
+const AMOUNT_TOLERANCE_RATIO = 0.25;
+const AMOUNT_AGREEMENT_RATIO = 0.7;
+const PRICE_CHANGE_THRESHOLD_PCT = 10;
+
+const CADENCE_BANDS: Array<{
+  cadence: RecurringCadence;
+  minGapDays: number;
+  maxGapDays: number;
+  toMonthly: (amount: number) => number;
+}> = [
+  { cadence: "weekly", minGapDays: 5, maxGapDays: 9, toMonthly: (a) => a * 4.33 },
+  { cadence: "monthly", minGapDays: 25, maxGapDays: 35, toMonthly: (a) => a },
+  { cadence: "quarterly", minGapDays: 80, maxGapDays: 100, toMonthly: (a) => a / 3 },
+  { cadence: "annual", minGapDays: 330, maxGapDays: 400, toMonthly: (a) => a / 12 },
+];
+
+function median(nums: number[]): number {
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+function daysBetween(fromIso: string, toIso: string): number {
+  return Math.floor(
+    (new Date(`${toIso}T00:00:00Z`).getTime() - new Date(`${fromIso}T00:00:00Z`).getTime()) /
+      86_400_000,
+  );
+}
+
+/**
+ * Merchants billing on a regular cadence — expense-side only (refund/credit
+ * rows are dropped before grouping, since they aren't billing occurrences and
+ * would corrupt the gap/amount statistics). Pass the expense slice from
+ * `partitionByType`, full history — capping to a `show`-windowed subset would
+ * make recurrence undetectable. Sorted descending by `monthlyEquivalent`.
+ */
+export function detectRecurringMerchants(
+  txns: Txn[],
+  minOccurrences = 3,
+): RecurringMerchant[] {
+  const groups = new Map<string, Txn[]>();
+  for (const t of txns) {
+    if (t.direction !== "debit") continue;
+    if (!/^\d{4}-\d{2}-\d{2}/.test(t.date)) continue;
+    const list = groups.get(t.merchant_normalized) ?? [];
+    list.push(t);
+    groups.set(t.merchant_normalized, list);
+  }
+
+  const out: RecurringMerchant[] = [];
+  for (const [merchantNormalized, group] of groups) {
+    if (group.length < minOccurrences) continue;
+    const sorted = [...group].sort((a, b) => a.date.localeCompare(b.date));
+
+    const gaps: number[] = [];
+    for (let i = 1; i < sorted.length; i++) {
+      gaps.push(daysBetween(sorted[i - 1].date, sorted[i].date));
+    }
+    const medianGapDays = median(gaps);
+
+    // Coarse band first (cheap reject), then the real filter: every
+    // individual gap (not just the median) has to be consistent.
+    const band = CADENCE_BANDS.find(
+      (b) => medianGapDays >= b.minGapDays && medianGapDays <= b.maxGapDays,
+    );
+    if (!band) continue; // irregular cadence — not recurring
+    const gapTolerance = medianGapDays * GAP_TOLERANCE_RATIO;
+    if (!gaps.every((g) => Math.abs(g - medianGapDays) <= gapTolerance)) continue;
+
+    // Amount consistency — tolerate roughly one price-change event without
+    // disqualifying the merchant outright.
+    const amounts = sorted.map((t) => t.amount);
+    const medianAmount = median(amounts);
+    const agreeing = amounts.filter(
+      (a) => Math.abs(a - medianAmount) <= medianAmount * AMOUNT_TOLERANCE_RATIO,
+    ).length;
+    if (agreeing < Math.ceil(sorted.length * AMOUNT_AGREEMENT_RATIO)) continue;
+
+    const first = sorted[0];
+    const latest = sorted[sorted.length - 1];
+    const priceChangePct =
+      first.amount === 0 ? 0 : round2(((latest.amount - first.amount) / first.amount) * 100);
+
+    out.push({
+      merchantNormalized,
+      merchant: latest.merchant,
+      category: latest.category,
+      cadence: band.cadence,
+      occurrences: sorted.length,
+      medianGapDays: round2(medianGapDays),
+      firstSeen: first.date,
+      lastSeen: latest.date,
+      firstAmount: first.amount,
+      latestAmount: latest.amount,
+      monthlyEquivalent: round2(band.toMonthly(latest.amount)),
+      priceChanged: Math.abs(priceChangePct) >= PRICE_CHANGE_THRESHOLD_PCT,
+      priceChangePct,
+    });
+  }
+
+  return out.sort((a, b) => b.monthlyEquivalent - a.monthlyEquivalent);
+}
+
+export interface YearSummary {
+  /** e.g. "2026". */
+  year: string;
+  totalExpense: number;
+  totalIncome: number;
+  /** totalIncome - totalExpense. */
+  netSaved: number;
+  topCategories: Array<{ category: string; total: number }>;
+  topMerchant: { merchant: string; total: number } | null;
+  biggestExpense: Txn | null;
+  busiestMonth: { month: string; label: string; total: number } | null;
+}
+
+/**
+ * Roll up expense + income by calendar year, from full history (not the
+ * show-windowed subset — a year is a different unit entirely from the page's
+ * statement/month grouping). Most-recent-year-first. Degrades to a single
+ * card when only one year of data exists.
+ */
+export function yearInReview(
+  expenseTxns: Txn[],
+  incomeTxns: Txn[],
+  topCategoriesLimit = 5,
+): YearSummary[] {
+  const years = new Set<string>();
+  for (const t of [...expenseTxns, ...incomeTxns]) {
+    const year = t.date.slice(0, 4);
+    if (/^\d{4}$/.test(year)) years.add(year);
+  }
+
+  return [...years]
+    .sort((a, b) => b.localeCompare(a))
+    .map((year) => {
+      const yearExpense = expenseTxns.filter((t) => t.date.startsWith(year));
+      const yearIncome = incomeTxns.filter((t) => t.date.startsWith(year));
+
+      const topMerchantEntry = topMerchants(yearExpense, 1)[0] ?? null;
+
+      let biggestExpense: Txn | null = null;
+      for (const t of yearExpense) {
+        if (t.direction !== "debit") continue;
+        if (!biggestExpense || t.amount > biggestExpense.amount) biggestExpense = t;
+      }
+
+      let busiestMonth: YearSummary["busiestMonth"] = null;
+      for (const m of byMonth(yearExpense)) {
+        if (!busiestMonth || m.total > busiestMonth.total) {
+          busiestMonth = { month: m.key, label: m.label, total: m.total };
+        }
+      }
+
+      const totalExpense = totalNetSpend(yearExpense);
+      const totalIncome = totalNetSpend(yearIncome, "credit");
+
+      return {
+        year,
+        totalExpense,
+        totalIncome,
+        netSaved: round2(totalIncome - totalExpense),
+        topCategories: netByCategory(yearExpense)
+          .filter((c) => c.total > 0)
+          .slice(0, topCategoriesLimit),
+        topMerchant: topMerchantEntry
+          ? { merchant: topMerchantEntry.merchant, total: topMerchantEntry.total }
+          : null,
+        biggestExpense,
+        busiestMonth,
+      };
+    });
+}
+
 /** Currencies present, most-used first. */
 export function currenciesOf(txns: Txn[]): string[] {
   const counts = new Map<string, number>();

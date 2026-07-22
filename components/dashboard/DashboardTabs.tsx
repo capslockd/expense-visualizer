@@ -8,13 +8,14 @@ const TABS = [
     label: "Income vs Expenditure",
     href: "/dashboard/income-vs-expense",
   },
+  { key: "trends", label: "Trends Dashboard", href: "/dashboard/trends" },
 ] as const;
 
-/** Tab strip shown at the top of all 3 dashboard pages for quick lateral navigation. */
+/** Tab strip shown at the top of all 4 dashboard pages for quick lateral navigation. */
 export default function DashboardTabs({
   active,
 }: {
-  active: "expense" | "income" | "overview";
+  active: "expense" | "income" | "overview" | "trends";
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
