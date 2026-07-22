@@ -9,7 +9,6 @@ import {
 } from "@/lib/sheets/repo";
 import {
   byMonth,
-  byStatement,
   currenciesOf,
   detectRecurringMerchants,
   partitionByType,
@@ -68,7 +67,7 @@ export default async function TrendsPage({
 
   const params = await searchParams;
   const currencies = currenciesOf(allTxns);
-  const { currency, group, show } = resolveDashboardParams(params, currencies);
+  const { currency, show } = resolveDashboardParams(params, currencies);
   const currencyTxns = allTxns.filter((t) => t.currency === currency);
 
   const incomeCategoryNames = new Set(
@@ -100,21 +99,19 @@ export default async function TrendsPage({
     );
   }
 
-  const periodNoun = group === "statement" ? "statement" : "month";
+  // Always month-based, never by statement: expense and income arrive on
+  // different statement cadences for real usage here (monthly card
+  // statements vs a quarterly income/savings statement), so bucketing by
+  // statement_id would pair a quarter of income against a single month of
+  // expenses. Calendar months are the only unit both sides share.
+  const periodNoun = "month";
 
-  // Section 3 (Savings rate) is the only section that respects group/show —
-  // mirrors income-vs-expense/page.tsx's period-merge exactly.
   const trackedTxns = [...expenseTxns, ...incomeTxns];
-  const allPeriods =
-    group === "month" ? byMonth(trackedTxns) : byStatement(trackedTxns, statements);
+  const allPeriods = byMonth(trackedTxns);
   const periods = allPeriods.slice(-Math.min(show, MAX_PERIODS));
 
-  const expensePeriods =
-    group === "month" ? byMonth(expenseTxns) : byStatement(expenseTxns, statements);
-  const incomePeriods =
-    group === "month"
-      ? byMonth(incomeTxns, "credit")
-      : byStatement(incomeTxns, statements, "credit");
+  const expensePeriods = byMonth(expenseTxns);
+  const incomePeriods = byMonth(incomeTxns, "credit");
   const expenseByKey = new Map(expensePeriods.map((p) => [p.key, p.total]));
   const incomeByKey = new Map(incomePeriods.map((p) => [p.key, p.total]));
 
@@ -149,16 +146,19 @@ export default async function TrendsPage({
         <h1 className="text-2xl font-semibold">Trends Dashboard</h1>
         <DashboardControls
           basePath="/dashboard/trends"
-          group={group}
+          group="month"
           show={show}
           currency={currency}
           currencies={currencies}
           periodNoun={periodNoun}
+          showGroupToggle={false}
         />
       </div>
       <p className="mt-1 text-xs text-zinc-500">
-        The statement/month and window controls above only scope the Savings rate section below
-        — Recurring, Year in review, and Transaction explorer always look at your full history.
+        The window control above only scopes the Savings rate section below, which is always
+        shown month by month — expense and income statements arrive on different cadences, so
+        months are the only unit both sides line up on. Recurring, Year in review, and
+        Transaction explorer always look at your full history.
       </p>
       {allPeriods.length > periods.length && (
         <p className="mt-1 text-xs text-zinc-400">

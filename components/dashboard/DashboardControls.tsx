@@ -13,6 +13,7 @@ export default function DashboardControls({
   currency,
   currencies,
   periodNoun,
+  showGroupToggle = true,
 }: {
   basePath: string;
   group: "statement" | "month";
@@ -20,6 +21,8 @@ export default function DashboardControls({
   currency: string;
   currencies: string[];
   periodNoun: string;
+  /** Hide the By statement/By month toggle for pages where no section reads it. */
+  showGroupToggle?: boolean;
 }) {
   const href = (over: { group?: string; show?: number; currency?: string }) => {
     const q = new URLSearchParams();
@@ -31,26 +34,28 @@ export default function DashboardControls({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
-        {(
-          [
-            ["statement", "By statement"],
-            ["month", "By month"],
-          ] as const
-        ).map(([g, label]) => (
-          <Link
-            key={g}
-            href={href({ group: g })}
-            className={`rounded-md px-3 py-1 text-sm ${
-              g === group
-                ? "bg-zinc-900 font-medium text-white"
-                : "text-zinc-600 hover:bg-zinc-100"
-            }`}
-          >
-            {label}
-          </Link>
-        ))}
-      </div>
+      {showGroupToggle && (
+        <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
+          {(
+            [
+              ["statement", "By statement"],
+              ["month", "By month"],
+            ] as const
+          ).map(([g, label]) => (
+            <Link
+              key={g}
+              href={href({ group: g })}
+              className={`rounded-md px-3 py-1 text-sm ${
+                g === group
+                  ? "bg-zinc-900 font-medium text-white"
+                  : "text-zinc-600 hover:bg-zinc-100"
+              }`}
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1">
         {SHOW_OPTIONS.map((n) => (
